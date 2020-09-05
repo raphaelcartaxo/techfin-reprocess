@@ -1,0 +1,5 @@
+pycarol
+gspread
+joblib
+slacker-log-handler
+python-dotenv

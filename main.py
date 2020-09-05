@@ -225,7 +225,7 @@ if __name__ == "__main__":
     if current_version!=app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing+consolidate+process")
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing+consolidate+appRunning")
         update_app(login, app_name, app_version)
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
     else:
@@ -237,7 +237,7 @@ if __name__ == "__main__":
 
     #consolidate.
     if not skip_consolidate:
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Consolidate+Process")
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Consolidating + appRunning")
         logger.info(f"Staging consolidate {domain}")
         _ = consolidate_staggins(login)
         logger.info(f"Done consolidate {domain}")
