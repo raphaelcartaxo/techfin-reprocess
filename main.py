@@ -162,7 +162,7 @@ def update_app(login, app_name, app_version):
     to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
     if to_install:
         to_install = to_install[0]
-        assert to_install["mdmAppVersion"]=="app_version"
+        assert to_install["mdmAppVersion"]==app_version
         to_install_id = to_install['mdmId']
     else:
         logger.error("Error trying to update app")
