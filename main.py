@@ -83,6 +83,8 @@ def par_consolidate(login, staging_name, connector_name):
     return task_id
 
 def consolidate_staggins(login):
+
+    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
     main_tables = ['ar1', 'cko', 'company', 'ct1', 'ctl', 'ctt', 'currency', 'cv3', 'cvd', 'fk1',
                    'fk2', 'fk5', 'fk7', 'fkc', 'fkd', 'frv', 'invoicexml', 'mapping', 'organization',
                    'paymentstype', 'sa1', 'sa2', 'sa6', 'sd1', 'sd2', 'se1', 'se2', 'se8', 'sea', 'sf1', 'sf2',
@@ -94,7 +96,10 @@ def consolidate_staggins(login):
     tasks[domain].extend(task_id)
     task_list = [i['data']['mdmId'] for i in tasks[login.domain]]
 
-    task_list, fail = track_tasks(login, task_list)
+    try:
+        task_list, fail = track_tasks(login, task_list)
+    except:
+        fail = True
 
     if fail:
         logger.error(f"Problem with {login.domain} durring consolidate." )
@@ -147,7 +152,11 @@ def run_app(login, app_name, process_name, ):
     process_id = login.call_api(f"v1/tenantApps/{app_id}/aiprocesses", method='GET', params=params)["mdmId"]
     process_id = login.call_api(f"v1/tenantApps/{app_id}/aiprocesses/{process_id}/execute/{process_name}",
                                 method='POST')["data"]["mdmId"]
-    task_list, fail = track_tasks(login, [process_id])
+
+    try:
+        task_list, fail = track_tasks(login, [process_id])
+    except:
+        fail=True
 
     if fail:
         logger.error(f"Problem with {login.domain} during Processing.")
@@ -157,6 +166,8 @@ def run_app(login, app_name, process_name, ):
 
 
 def update_app(login, app_name, app_version):
+
+    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
 
     to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
     to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
@@ -173,7 +184,11 @@ def update_app(login, app_name, app_version):
     install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
     install_task = install_task['mdmId']
 
-    task_list, fail = track_tasks(login, [install_task])
+    try:
+        task_list, fail = track_tasks(login, [install_task])
+    except:
+        fail = True
+
     if fail:
         logger.error(f"Problem with {login.domain} during App installation.")
         sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
