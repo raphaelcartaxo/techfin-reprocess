@@ -108,7 +108,7 @@ def consolidate_staggins(login):
 
     return task_list
 
-def track_tasks(login, task_list):
+def track_tasks(login, task_list, do_not_retry=False):
 
     retry_tasks = defaultdict(int)
     n_task = len(task_list)
@@ -122,6 +122,9 @@ def track_tasks(login, task_list):
         for task in task_status['FAILED'] + task_status['CANCELED']:
             logger.warning(f'Something went wrong while processing: {task}')
             retry_tasks[task] += 1
+            if do_not_retry:
+                logger.error(f'Task: {task} failed. It wll not be restarted.')
+                continue
             if retry_tasks[task] > 3:
                 max_retries.update([task])
                 logger.error(f'Task: {task} failed 3 times. will not restart')
@@ -154,7 +157,7 @@ def run_app(login, app_name, process_name, ):
                                 method='POST')["data"]["mdmId"]
 
     try:
-        task_list, fail = track_tasks(login, [process_id])
+        task_list, fail = track_tasks(login, [process_id], do_not_retry=True)
     except:
         fail=True
 
