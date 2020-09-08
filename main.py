@@ -53,7 +53,6 @@ def update_settings(login):
 
 
 def get_login(domain, org):
-
     email = os.environ['CAROLUSER']
     password = os.environ['CAROLPWD']
     carol_app = 'techfinplatform'
@@ -63,6 +62,7 @@ def get_login(domain, org):
     login = Carol(domain, carol_app, auth=ApiKeyAuth(api_key['X-Auth-Key']),
                   connector_id=api_key['X-Auth-ConnectorId'], organization=org, )
     return login
+
 
 def par_consolidate(login, staging_name, connector_name):
     cds_stag = CDSStaging(login)
@@ -76,11 +76,11 @@ def par_consolidate(login, staging_name, connector_name):
     number_shards = round(n_r / 100000) + 1
     number_shards = max(16, number_shards)
     task_id = cds_stag.consolidate(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
-                                   number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers )
+                                   number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers)
     return task_id
 
-def consolidate_stagings(login):
 
+def consolidate_stagings(login):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
     main_tables = ['ar1', 'cko', 'company', 'ct1', 'ctl', 'ctt', 'currency', 'cv3', 'cvd', 'fk1',
                    'fk2', 'fk5', 'fk7', 'fkc', 'fkd', 'frv', 'invoicexml', 'mapping', 'organization',
@@ -88,8 +88,9 @@ def consolidate_stagings(login):
                    'sf4', 'protheus_sharing']
 
     tasks = defaultdict(list)
-    task_id = Parallel(n_jobs=5, backend='threading')(delayed(par_consolidate)(login, staging_name=i, connector_name='protheus_carol')
-                                 for i in main_tables)
+    task_id = Parallel(n_jobs=5, backend='threading')(delayed(par_consolidate)(login, staging_name=i,
+                                                                               connector_name='protheus_carol')
+                                                      for i in main_tables)
     tasks[domain].extend(task_id)
     task_list = [i['data']['mdmId'] for i in tasks[login.domain]]
 
@@ -99,14 +100,14 @@ def consolidate_stagings(login):
         fail = True
 
     if fail:
-        logger.error(f"Problem with {login.domain} durring consolidate." )
+        logger.error(f"Problem with {login.domain} durring consolidate.")
         sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
         exit(1)
 
     return task_list
 
-def track_tasks(login, task_list, do_not_retry=False):
 
+def track_tasks(login, task_list, do_not_retry=False):
     retry_tasks = defaultdict(int)
     n_task = len(task_list)
     max_retries = set()
@@ -167,14 +168,13 @@ def run_app(login, app_name, process_name, ):
 
 
 def update_app(login, app_name, app_version):
-
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
 
     to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
     to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
     if to_install:
         to_install = to_install[0]
-        assert to_install["mdmAppVersion"]==app_version
+        assert to_install["mdmAppVersion"] == app_version
         to_install_id = to_install['mdmId']
     else:
         logger.error("Error trying to update app")
@@ -197,11 +197,11 @@ def update_app(login, app_name, app_version):
     return task_list
 
 
-
 def get_app_version(login, app_name, version):
     app = Apps(login)
     app_info = app.get_by_name(app_name)
     return app_info['mdmAppVersion']
+
 
 if __name__ == "__main__":
 
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     app_version = '0.0.54'
 
     # Create slack handler
-    slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess', #"@rafael.rui",
+    slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
                                       username='TechFinBot')
     slack_handler.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -236,9 +236,9 @@ if __name__ == "__main__":
     sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
     logger.info(f"Starting process {domain}")
 
-    #Intall app.
+    # Intall app.
     current_version = get_app_version(login, app_name, app_version)
-    if current_version!=app_version:
+    if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing+consolidate+appRunning")
@@ -248,10 +248,10 @@ if __name__ == "__main__":
         logger.info(f"Running version {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
 
-    #Update app params.
+    # Update app params.
     update_settings(login)
 
-    #consolidate.
+    # consolidate.
     if not skip_consolidate:
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "Consolidating + appRunning")
         logger.info(f"Staging consolidate {domain}")
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Process")
     logger.info(f"Starting app {domain}")
 
-    #run app.
+    # run app.
     _ = run_app(login, app_name=app_name, process_name=process_name)
     logger.info(f"Finished all process {domain}")
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Done")
