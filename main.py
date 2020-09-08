@@ -82,7 +82,7 @@ def par_consolidate(login, staging_name, connector_name):
                                    number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers )
     return task_id
 
-def consolidate_staggins(login):
+def consolidate_stagings(login):
 
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
     main_tables = ['ar1', 'cko', 'company', 'ct1', 'ctl', 'ctt', 'currency', 'cv3', 'cvd', 'fk1',
@@ -257,7 +257,7 @@ if __name__ == "__main__":
     if not skip_consolidate:
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "Consolidating + appRunning")
         logger.info(f"Staging consolidate {domain}")
-        _ = consolidate_staggins(login)
+        _ = consolidate_stagings(login)
         logger.info(f"Done consolidate {domain}")
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Process")
     logger.info(f"Starting app {domain}")
