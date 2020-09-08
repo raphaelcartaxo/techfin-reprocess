@@ -1,22 +1,19 @@
-import sys
-from pycarol import Carol, ApiKeyAuth, DataModel, Connectors, Staging, PwdAuth, CDSStaging
+from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging
 from pycarol import Tasks
-import random, time
+import random
+import time
 import os
 from dotenv import load_dotenv
 from joblib import Parallel, delayed
 import sheet_utils
-
-
-load_dotenv('.env', override=True)
 import argparse
 from slacker_log_handler import SlackerLogHandler
 import logging
 from pycarol.apps import Apps
 from collections import defaultdict
-
 import gspread
 
+load_dotenv('.env', override=True)
 
 gc = gspread.oauth()
 sh = gc.open("status_techfin_reprocess")
@@ -148,6 +145,7 @@ def track_tasks(login, task_list, do_not_retry=False):
 def run_app(login, app_name, process_name, ):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
 
+    task_list = []
     app = Apps(login)
     app_id = app.get_by_name(app_name)['mdmId']
 
@@ -159,7 +157,7 @@ def run_app(login, app_name, process_name, ):
     try:
         task_list, fail = track_tasks(login, [process_id], do_not_retry=True)
     except:
-        fail=True
+        fail = True
 
     if fail:
         logger.error(f"Problem with {login.domain} during Processing.")
