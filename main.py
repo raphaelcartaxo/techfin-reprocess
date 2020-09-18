@@ -82,6 +82,7 @@ def par_consolidate(login, staging_name, connector_name):
 
 def consolidate_stagings(login):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
+    #TODO: Need to rethink how to do this. If need tables are added need to change here.
     main_tables = ['ar1', 'cko', 'company', 'ct1', 'ctl', 'ctt', 'currency', 'cv3', 'cvd', 'fk1',
                    'fk2', 'fk5', 'fk7', 'fkc', 'fkd', 'frv', 'invoicexml', 'mapping', 'organization',
                    'paymentstype', 'sa1', 'sa2', 'sa6', 'sd1', 'sd2', 'se1', 'se2', 'se8', 'sea', 'sf1', 'sf2',
