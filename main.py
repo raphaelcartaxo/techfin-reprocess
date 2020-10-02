@@ -246,7 +246,7 @@ if __name__ == "__main__":
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None]
 
     import multiprocessing
-    pool = multiprocessing.Pool(3)
+    pool = multiprocessing.Pool(6)
     pool.map(run, table)
     pool.close()
     pool.join()
