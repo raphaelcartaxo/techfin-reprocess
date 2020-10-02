@@ -192,8 +192,9 @@ def run(domain, org='totvstechfin'):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
     status = techfin_worksheet.row_values(current_cell.row)[-1]
 
-    if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower():
-        logger.info(f"Nothing to do in {domain}")
+    if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower()\
+            or "Installing app" == status:
+        logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Running")
