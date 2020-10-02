@@ -171,11 +171,13 @@ def run(domain, org='totvstechfin'):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
     status = techfin_worksheet.row_values(current_cell.row)[-1]
 
-    if 'done' in status.strip().lower() or 'failed' in status.strip().lower():
+    if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower():
         logger.info(f"Nothing to do in {domain}")
         return
 
+    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Running")
     sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
+
     logger.info(f"Starting process {domain}")
 
     # Intall app.
@@ -183,7 +185,7 @@ def run(domain, org='totvstechfin'):
     if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing+consolidate+appRunning")
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing app")
         update_app(login, app_name, app_version)
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
     else:
@@ -203,6 +205,8 @@ def run(domain, org='totvstechfin'):
         'sea_1_frv_descontado_deletado_invoicepayment',
         'sea_1_frv_descontado_naodeletado_invoicepayment',
     ]
+
+    sheet_utils.update_status(techfin_worksheet, current_cell.row, "reprocessing stagings")
 
     tasks_to_track = []
     for i, staging_name in enumerate(to_reprocess):
