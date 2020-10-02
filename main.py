@@ -100,24 +100,24 @@ def update_app(login, app_name, app_version, logger):
     else:
         logger.error("Error trying to update app")
         sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - did not found app to install')
-        return []
+        return [], True
 
     updated = login.call_api(f"v1/tenantApps/subscribe/carolApps/{to_install_id}", method='POST')
     params = {"publish": True, "connectorGroup": "protheus"}
     install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
     install_task = install_task['mdmId']
-
+    task_list = []
     try:
-        task_list, fail = track_tasks(login, [install_task])
+        task_list, fail = track_tasks(login, [install_task], logger=logger)
     except:
         fail = True
 
     if fail:
         logger.error(f"Problem with {login.domain} during App installation.")
         sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - app install')
-        return []
+        return [], fail
 
-    return task_list
+    return task_list, False
 
 
 def par_processing(login, staging_name, connector_name, delete_realtime_records=False,
@@ -182,15 +182,19 @@ def run(domain, org='totvstechfin'):
 
     # Intall app.
     current_version = get_app_version(login, app_name, app_version)
+    fail = False
     if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing app")
-        update_app(login, app_name, app_version, logger)
+        _, fail = update_app(login, app_name, app_version, logger)
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
     else:
         logger.info(f"Running version {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+
+    if fail:
+        return
 
     to_reprocess = [
         'fk5_transferencia',
