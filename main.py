@@ -104,9 +104,11 @@ def update_app(login, app_name, app_version, logger):
     r = login.call_api(path=uri, method='POST', data=query)
     if len(r['hits']) >= 1:
         task_id = r['hits'][0]['mdmId']
-
+        installing_version = r['hits'][0]['mdmData']['carolAppVersion']
     try:
         task_list, fail = track_tasks(login, [task_id], logger=logger)
+        if installing_version == app_version:
+            return task_list, False
     except:
         fail = True
 
