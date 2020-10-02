@@ -193,7 +193,7 @@ def run(domain, org='totvstechfin'):
     status = techfin_worksheet.row_values(current_cell.row)[-1]
 
     if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower()\
-            or "Installing app" == status:
+            or "Installing app" == status or "Reprocessing stagings"==status:
         logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
@@ -251,8 +251,9 @@ def run(domain, org='totvstechfin'):
         fail = True
 
     if fail:
-        logger.error(f"Problem with {login.domain} durring consolidate.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
+        logger.error(f"Problem with {login.domain} during reprocess.")
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - reprocess')
+        sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
         return
 
     logger.info(f"Finished all process {domain}")
