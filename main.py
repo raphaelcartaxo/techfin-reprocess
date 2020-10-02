@@ -91,6 +91,25 @@ def track_tasks(login, task_list, do_not_retry=False, logger=None):
 def update_app(login, app_name, app_version, logger):
     current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
 
+    #check if stall task is running.
+    uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=25&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
+
+    query = {"mustList": [{"mdmFilterType": "TYPE_FILTER", "mdmValue": "mdmTask"},
+                          {"mdmKey": "mdmTaskType.raw", "mdmFilterType": "TERMS_FILTER",
+                           "mdmValue": ["INSTALL_CAROL_APP"]},
+                          {"mdmKey": "mdmTaskStatus.raw", "mdmFilterType": "TERMS_FILTER", "mdmValue": ["RUNNING"]}],
+             "mustNotList": [{"mdmKey": "mdmUserId.raw", "mdmFilterType": "MATCH_FILTER", "mdmValue": ""}],
+             "shouldList": []}
+
+    r = login.call_api(path=uri, method='POST', data=query)
+    if len(r['hits']) >= 1:
+        task_id = r['hits'][0]['mdmId']
+
+    try:
+        task_list, fail = track_tasks(login, [task_id], logger=logger)
+    except:
+        fail = True
+
     to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
     to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
     if to_install:
@@ -148,7 +167,7 @@ def get_app_version(login, app_name, version):
 def run(domain, org='totvstechfin'):
 
     # avoid all tasks starting at the same time.
-    time.sleep(round(1 + random.random() * 5, 2))
+    time.sleep(round(1 + random.random() * 5, 4))
     org = 'totvstechfin'
     app_name = "techfinplatform"
     app_version = '0.0.58'
@@ -245,6 +264,8 @@ if __name__ == "__main__":
     table = techfin_worksheet.get_all_records()
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None]
 
+
+    run('tenant131cc4f1afe711ea93f00a5864605eb3')
     import multiprocessing
     pool = multiprocessing.Pool(6)
     pool.map(run, table)
