@@ -229,7 +229,7 @@ def run(domain, org='totvstechfin'):
         'sea_1_frv_descontado_naodeletado_invoicepayment',
     ]
 
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "reprocessing stagings")
+    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Reprocessing stagings")
 
     tasks_to_track = []
     for i, staging_name in enumerate(to_reprocess):
