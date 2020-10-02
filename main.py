@@ -186,7 +186,7 @@ def run(domain, org='totvstechfin'):
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing app")
-        update_app(login, app_name, app_version)
+        update_app(login, app_name, app_version, logger)
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
     else:
         logger.info(f"Running version {app_version}")
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None]
 
     import multiprocessing
-    pool = multiprocessing.Pool(6)
+    pool = multiprocessing.Pool(3)
     pool.map(run, table)
     pool.close()
     pool.join()
