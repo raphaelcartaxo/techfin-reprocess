@@ -130,7 +130,8 @@ def update_app(login, app_name, app_version, logger):
     task_list = []
     try:
         task_list, fail = track_tasks(login, [install_task], logger=logger)
-    except:
+    except Exception as e:
+        logger.error("error after app install", exc_info=1)
         fail = True
 
     if fail:
@@ -247,7 +248,8 @@ def run(domain, org='totvstechfin'):
 
     try:
         task_list, fail = track_tasks(login, tasks_to_track, logger=logger)
-    except:
+    except Exception as e:
+        logger.error("error after app install", exc_info=1)
         fail = True
 
     if fail:
