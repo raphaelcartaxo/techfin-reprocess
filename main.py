@@ -188,9 +188,7 @@ def run(domain, org='totvstechfin'):
     console.setLevel(logging.DEBUG)
     logger.addHandler(console)
 
-    login = get_login(domain, org)
-
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
+    current_cell = sheet_utils.find_tenant(techfin_worksheet, domain)
     status = techfin_worksheet.row_values(current_cell.row)[-1]
 
     if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower()\
@@ -198,6 +196,7 @@ def run(domain, org='totvstechfin'):
         logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
+    login = get_login(domain, org)
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Running")
     sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
 
