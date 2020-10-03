@@ -268,7 +268,9 @@ def run(domain, org='totvstechfin'):
 if __name__ == "__main__":
 
     table = techfin_worksheet.get_all_records()
-    table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None]
+    table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None
+             and t.get('Status', '') != 'Done'
+             ]
 
     import multiprocessing
     pool = multiprocessing.Pool(6)
