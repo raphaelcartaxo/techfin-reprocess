@@ -103,14 +103,16 @@ def update_app(login, app_name, app_version, logger):
 
     r = login.call_api(path=uri, method='POST', data=query)
     if len(r['hits']) >= 1:
+        logger.info(f'Found install task in {login.domain}')
         task_id = r['hits'][0]['mdmId']
         installing_version = r['hits'][0]['mdmData']['carolAppVersion']
-    try:
-        task_list, fail = track_tasks(login, [task_id], logger=logger)
-        if installing_version == app_version:
-            return task_list, False
-    except:
-        fail = True
+        try:
+            task_list, fail = track_tasks(login, [task_id], logger=logger)
+            if installing_version == app_version:
+                return task_list, False
+        except Exception as e:
+            logger.error("error fetching already running task, will try again", exc_info=1)
+            fail = True
 
     to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
     to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
