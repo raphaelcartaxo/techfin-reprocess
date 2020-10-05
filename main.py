@@ -1,4 +1,4 @@
-from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging
+from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging, CDSGolden
 from pycarol import Tasks
 import random
 import time
@@ -162,6 +162,11 @@ def par_processing(login, staging_name, connector_name, delete_realtime_records=
                                     delete_realtime_records=delete_realtime_records)
     return task_id
 
+def fetch_godlen(login, dm_name):
+    cds_stag = CDSGolden(login)
+    task_id = cds_stag.sync_data(dm_name=dm_name, skip_consolidation=True, )
+    return task_id
+
 
 def get_app_version(login, app_name, version):
     app = Apps(login)
@@ -194,58 +199,19 @@ def run(domain, org='totvstechfin'):
     status = techfin_worksheet.row_values(current_cell.row)[-1]
 
     if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower()\
-            or "Installing app" == status or "Reprocessing stagings"==status:
+            or "No App" == status or "fetch golden"==status:
         logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
     login = get_login(domain, org)
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Running")
     sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
-
-    logger.info(f"Starting process {domain}")
-
-    # Intall app.
-    current_version = get_app_version(login, app_name, app_version)
-    fail = False
-    if current_version != app_version:
-        logger.info(f"Updating app from {current_version} to {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing app")
-        _, fail = update_app(login, app_name, app_version, logger)
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
-    else:
-        logger.info(f"Running version {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
-
-    if fail:
-        return
-
-    to_reprocess = [
-        'fk5_transferencia',
-        'fkd_1',
-        'se1_payments_abatimentos',
-        'fk1',
-        'se1_acresc_1',
-        'fk5_estorno_transferencia_pagamento',
-        'fkd_deletado',
-        'se1_decresc_1',
-        'se1_payments',
-        'sea_1_frv_descontado_deletado_invoicepayment',
-        'sea_1_frv_descontado_naodeletado_invoicepayment',
-    ]
-
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Reprocessing stagings")
+    logger.info(f"Starting fetch golden {domain}")
+    sheet_utils.update_status(techfin_worksheet, current_cell.row, "fetch golden")
 
     tasks_to_track = []
-    for i, staging_name in enumerate(to_reprocess):
-        if i == 0:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=True,
-                                  delete_target_folder=True)
-            time.sleep(5) #time to delete RT.
-        else:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
-                                  delete_target_folder=False)
-        tasks_to_track.append(task['data']['mdmId'])
+
+    task = fetch_godlen(login, 'arinvoicepayments',)
+    tasks_to_track.append(task['data']['mdmId'])
 
     try:
         task_list, fail = track_tasks(login, tasks_to_track, logger=logger)
@@ -255,7 +221,7 @@ def run(domain, org='totvstechfin'):
 
     if fail:
         logger.error(f"Problem with {login.domain} during reprocess.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - reprocess')
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - fetch_golden')
         sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
         return
 
@@ -272,9 +238,8 @@ if __name__ == "__main__":
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None
              and t.get('Status', '') != 'Done'
              ]
-
     import multiprocessing
-    pool = multiprocessing.Pool(6)
+    pool = multiprocessing.Pool(5)
     pool.map(run, table)
     pool.close()
     pool.join()
