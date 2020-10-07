@@ -175,7 +175,7 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.58'
+    app_version = '0.0.59'
     connector_name = 'protheus_carol'
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -218,44 +218,8 @@ def run(domain, org='totvstechfin'):
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
 
     if fail:
-        return
-
-    to_reprocess = [
-        'fk5_transferencia',
-        'fkd_1',
-        'se1_payments_abatimentos',
-        'fk1',
-        'se1_acresc_1',
-        'fk5_estorno_transferencia_pagamento',
-        'fkd_deletado',
-        'se1_decresc_1',
-        'se1_payments',
-        'sea_1_frv_descontado_deletado_invoicepayment',
-        'sea_1_frv_descontado_naodeletado_invoicepayment',
-    ]
-
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Reprocessing stagings")
-
-    tasks_to_track = []
-    for i, staging_name in enumerate(to_reprocess):
-        if i == 0:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=True,
-                                  delete_target_folder=True)
-            time.sleep(5) #time to delete RT.
-        else:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
-                                  delete_target_folder=False)
-        tasks_to_track.append(task['data']['mdmId'])
-
-    try:
-        task_list, fail = track_tasks(login, tasks_to_track, logger=logger)
-    except Exception as e:
-        logger.error("error after app install", exc_info=1)
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} during reprocess.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - reprocess')
+        logger.error(f"Problem installing app {login.domain}.")
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - app failed')
         sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
         return
 
@@ -263,7 +227,6 @@ def run(domain, org='totvstechfin'):
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Done")
     sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
 
-    return task_list
 
 
 if __name__ == "__main__":
@@ -274,7 +237,7 @@ if __name__ == "__main__":
              ]
 
     import multiprocessing
-    pool = multiprocessing.Pool(6)
+    pool = multiprocessing.Pool(8)
     pool.map(run, table)
     pool.close()
     pool.join()
