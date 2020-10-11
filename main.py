@@ -175,7 +175,7 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.59'
+    app_version = '0.0.60'
     connector_name = 'protheus_carol'
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
