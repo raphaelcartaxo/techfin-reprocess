@@ -212,7 +212,7 @@ if __name__ == "__main__":
 
     app_name = "techfinplatform"
     process_name = "processAll"
-    app_version = '0.0.54'
+    app_version = '0.0.60'
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
