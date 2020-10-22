@@ -158,7 +158,7 @@ def par_processing(login, staging_name, connector_name, delete_realtime_records=
     number_shards = max(16, number_shards)
     task_id = cds_stag.process_data(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
                                     number_shards=number_shards, max_number_workers=max_number_workers,
-                                    delete_target_folder=delete_target_folder,
+                                    delete_target_folder=delete_target_folder, send_realtime=None,
                                     delete_realtime_records=delete_realtime_records)
     return task_id
 
@@ -175,7 +175,7 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.58'
+    app_version = '0.0.61'
     connector_name = 'protheus_carol'
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -221,17 +221,7 @@ def run(domain, org='totvstechfin'):
         return
 
     to_reprocess = [
-        'fk5_transferencia',
-        'fkd_1',
-        'se1_payments_abatimentos',
-        'fk1',
-        'se1_acresc_1',
-        'fk5_estorno_transferencia_pagamento',
-        'fkd_deletado',
-        'se1_decresc_1',
-        'se1_payments',
-        'sea_1_frv_descontado_deletado_invoicepayment',
-        'sea_1_frv_descontado_naodeletado_invoicepayment',
+        'sf2_invoicebra',
     ]
 
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "Reprocessing stagings")
@@ -239,8 +229,8 @@ def run(domain, org='totvstechfin'):
     tasks_to_track = []
     for i, staging_name in enumerate(to_reprocess):
         if i == 0:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=True,
-                                  delete_target_folder=True)
+            task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
+                                  delete_target_folder=False)
             time.sleep(5) #time to delete RT.
         else:
             task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
