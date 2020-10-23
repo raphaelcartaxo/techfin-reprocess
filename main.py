@@ -120,15 +120,21 @@ def update_app(login, app_name, app_version, logger):
         to_install = to_install[0]
         assert to_install["mdmAppVersion"] == app_version
         to_install_id = to_install['mdmId']
+        updated = login.call_api(f"v1/tenantApps/subscribe/carolApps/{to_install_id}", method='POST')
+        params = {"publish": True, "connectorGroup": "protheus"}
+        install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
+        install_task = install_task['mdmId']
     else:
-        logger.error("Error trying to update app")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - did not found app to install')
-        return [], True
+        #check failed task
+        task = check_failed_instalL(login, app_name, app_version)
+        if task:
+            install_task = login.call_api(f'v1/tasks/{task}/reprocess', method="POST")['mdmId']
+        else:
+            logger.error("Error trying to update app")
+            sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - did not found app to install')
+            return [], True
 
-    updated = login.call_api(f"v1/tenantApps/subscribe/carolApps/{to_install_id}", method='POST')
-    params = {"publish": True, "connectorGroup": "protheus"}
-    install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
-    install_task = install_task['mdmId']
+
     task_list = []
     try:
         task_list, fail = track_tasks(login, [install_task], logger=logger)
@@ -138,10 +144,21 @@ def update_app(login, app_name, app_version, logger):
 
     if fail:
         logger.error(f"Problem with {login.domain} during App installation.")
+        sheet_utils.update_task_id(techfin_worksheet, current_cell.row, install_task)
         sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - app install')
         return [], fail
 
     return task_list, False
+
+
+def check_failed_instalL(login, app_name, app_version):
+    app = login.call_api("v1/tenantApps?pageSize=-1", method='GET')
+    app = [i for i in app['hits'] if (i["mdmName"] == app_name and
+                                      i["mdmAppVersion"] == app_version and
+                                      i['mdmInstallationTaskStatus'] == 'FAILED')]
+    if app:
+        app = app[0]['mdmInstallationTaskId']
+        return app
 
 
 def par_processing(login, staging_name, connector_name, delete_realtime_records=False,
