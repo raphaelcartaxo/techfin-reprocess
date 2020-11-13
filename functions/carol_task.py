@@ -1,4 +1,6 @@
-from pycarol import Carol, ApiKeyAuth, PwdAuth, Tasks, Staging, Connectors
+from pycarol import (
+    Carol, ApiKeyAuth, PwdAuth, Tasks, Staging, Connectors, CDSStaging, Subscription
+                     )
 from collections import defaultdict
 import random
 import time
@@ -135,5 +137,59 @@ def drop_etls(login, etl_list):
         except Exception as e:
             pass
         login.call_api(f'v2/etl/{mdm_id}', method='DELETE', params={'entitySpace': 'PRODUCTION'})
+
+
+def par_processing(login, staging_name, connector_name, delete_realtime_records=False,
+                   delete_target_folder=False):
+    cds_stag = CDSStaging(login)
+    n_r = cds_stag.count(staging_name=staging_name, connector_name=connector_name)
+    if n_r > 5000000:
+        worker_type = 'n1-highmem-16'
+        max_number_workers = 16
+    else:
+        worker_type = 'n1-highmem-4'
+        max_number_workers = 16
+    number_shards = round(n_r / 100000) + 1
+    number_shards = max(16, number_shards)
+    task_id = cds_stag.process_data(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
+                                    number_shards=number_shards, max_number_workers=max_number_workers,
+                                    delete_target_folder=delete_target_folder, send_realtime=None,
+                                    delete_realtime_records=delete_realtime_records)
+    return task_id
+
+
+def pause_and_clear_subscriptions(login, dm_list, logger):
+
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+    subs = Subscription(login)
+
+    for idx in dm_list:
+        a = subs.get_dm_subscription(idx)
+
+        for dm in a:
+            logger.debug(f"Stopping {dm['mdmEntityTemplateName']}")
+            subs.pause(dm['mdmId'])
+            subs.clear(dm['mdmId'])
+
+    return
+
+def play_subscriptions(login, dm_list, logger):
+
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+    subs = Subscription(login)
+
+    for idx in dm_list:
+        a = subs.get_dm_subscription(idx)
+
+        for dm in a:
+            logger.debug(f"Playing {dm['mdmEntityTemplateName']}")
+            subs.play(dm['mdmId'])
+
+    return
+
 
 
