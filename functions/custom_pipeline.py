@@ -1,5 +1,8 @@
 from toposort import toposort_flatten, toposort
+from . import carol_task
+from pycarol import CDSStaging, Connectors
 from functools import reduce
+import logging
 
 def get_dag():
     rel = {}
@@ -61,6 +64,34 @@ def get_dag():
     return dag_order
 
 
+def run_custom_pipeline(login, connector_name, logger):
 
-def get_stagings():
-    dag = list(reduce(set.union, get_dag()))
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+    dag = get_dag()
+
+    for p in dag:
+        dm = [i for i in p if i.startswith('DM_')]
+        stagings = [i for i in p if not i.startswith('DM_')]
+        tasks = []
+        if dm:
+            #play integration
+            # TODO: reprocess rejected?
+            pass
+        for staging_name in stagings:
+            logger.debug(f"processing {staging_name}")
+            mappings_ = carol_task.resume_process(connector_name=connector_name, staging_name=staging_name)
+            task_id = CDSStaging(login).process_data(staging_name, connector_name=connector_name,
+                                                     delete_target_folder=False, delete_realtime_records=False,
+                                                     recursive_processing=False)
+            tasks += [task_id['data']['mdmId']]
+
+        task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
+
+        if fail:
+            return True
+
+    return False
+
+
+

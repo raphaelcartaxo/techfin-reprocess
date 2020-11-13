@@ -21,7 +21,7 @@ def update_app(login, app_name, app_version, logger, connector_group=None):
     current_cell = sheet_utils.find_tenant(sheet_utils.techfin_worksheet, login.domain)
     #check if there is a install task is running.
     uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=25&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
-
+    # TODO can user Query from pycarol
     query = {"mustList": [{"mdmFilterType": "TYPE_FILTER", "mdmValue": "mdmTask"},
                           {"mdmKey": "mdmTaskType.raw", "mdmFilterType": "TERMS_FILTER",
                            "mdmValue": ["INSTALL_CAROL_APP"]},
@@ -71,4 +71,6 @@ def update_app(login, app_name, app_version, logger, connector_group=None):
         return install_task, fail
 
     return install_task, False
+
+
 

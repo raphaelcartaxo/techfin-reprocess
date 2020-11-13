@@ -37,6 +37,9 @@ def run(domain, org='totvstechfin'):
     app_version = '0.0.63'
     connector_name = 'protheus_carol'
     connector_group = 'protheus'
+
+    consolidate_list = ['se1', 'fk1', 'se2', 'fk2']
+
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
                                       username='TechFinBot')
@@ -61,18 +64,25 @@ def run(domain, org='totvstechfin'):
     login = carol_login.get_login(domain, org)
     sheet_utils.update_start_time(sheet_utils.techfin_worksheet, current_cell.row)
 
-    #Stop pub/sub if any.
+
     dag = custom_pipeline.get_dag()
     dag = list(reduce(set.union, custom_pipeline.get_dag()))
     dms = [i.replace('DM_', '') for i in dag if i.startswith('DM_')]
+    staging_list = [i for i in dag if not i.startswith('DM_')]
 
+    # Stop pub/sub if any.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - stop pubsub")
-
     try:
         carol_task.pause_and_clear_subscriptions(login, dms, logger)
     except Exception as e:
         logger.error("error stop pubsub", exc_info=1)
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - stop pubsub")
+        return
+    try:
+        carol_task.play_subscriptions(login, dms, logger)
+    except Exception as e:
+        logger.error("error playing pubsub", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
         return
 
     # Dropping stagings.
@@ -85,7 +95,6 @@ def run(domain, org='totvstechfin'):
         logger.error(f"error dropping staging {domain}")
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
         return
-
     try:
         task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
     except Exception as e:
@@ -106,16 +115,15 @@ def run(domain, org='totvstechfin'):
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping ETLs")
         return
 
-    #
-
     # Install app.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
     current_version = carol_apps.get_app_version(login, app_name, app_version)
     fail = False
     task_list = '__unk__'
     if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "installing app")
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
         task_list, fail = carol_apps.update_app(login, app_name, app_version, logger, connector_group=connector_group)
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
     else:
@@ -128,35 +136,62 @@ def run(domain, org='totvstechfin'):
         sheet_utils.update_task_id(sheet_utils.techfin_worksheet, current_cell.row, task_list)
         return
 
+    # Cancel unwanted tasks.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - canceling tasks")
+    pross_tasks = carol_task.find_task_types(login)
+    pross_task = [i['mdmId'] for i in pross_tasks]
+    if pross_task:
+        carol_task.cancel_tasks(login, pross_task)
 
-    to_reprocess = [
-        'sf2_invoicebra',
-    ]
 
-    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Reprocessing stagings")
+    # pause ETLs.
+    carol_task.pause_etls(login, etl_list=staging_list, connector_name=connector_name, logger=logger)
+    # pause mappings.
+    carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name,)
 
-    tasks_to_track = []
-    for i, staging_name in enumerate(to_reprocess):
-        if i == 0:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
-                                  delete_target_folder=False)
-            time.sleep(5)  # time to delete RT.
-        else:
-            task = par_processing(login, staging_name, connector_name, delete_realtime_records=False,
-                                  delete_target_folder=False)
-        tasks_to_track.append(task['data']['mdmId'])
+    # consolidate
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - consolidate")
+    task_list = carol_task.consolidate_stagings(login, connector_name=connector_name, staging_list=consolidate_list,
+                                    n_jobs=1, logger=logger)
 
     try:
-        task_list, fail = carol_task.track_tasks(login, tasks_to_track, logger=logger)
+        task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
     except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
         logger.error("error after app install", exc_info=1)
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} during reprocess.")
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, 'failed - reprocess')
-        sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
         return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
+        logger.error("error after app install")
+        return
+
+    # delete DMs
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete DMs")
+    task_list = carol_task.par_delete_golden(login, dm_list=dms, n_jobs=1)
+    try:
+        task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
+    except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete DMs")
+        logger.error("error after app install", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
+        logger.error("error after app install")
+        return
+
+
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - processing")
+    try:
+        fail = custom_pipeline.run_custom_pipeline(login, connector_name=connector_name, logger=logger)
+    except Exception:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
+        logger.error("error after app install", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
+        logger.error("error after app install")
+        return
+
 
     logger.info(f"Finished all process {domain}")
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Done")
@@ -168,8 +203,7 @@ def run(domain, org='totvstechfin'):
 if __name__ == "__main__":
     table = sheet_utils.techfin_worksheet.get_all_records()
 
-    skip_status = ['done', 'failed', 'wait', 'running', 'installing', 'reprocessing']
-
+    skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None
              and not any(i in t.get('Status', '').lower().strip() for i in skip_status)

@@ -1,10 +1,27 @@
 from pycarol import (
-    Carol, ApiKeyAuth, PwdAuth, Tasks, Staging, Connectors, CDSStaging, Subscription
+    Carol, ApiKeyAuth, PwdAuth, Tasks, Staging, Connectors, CDSStaging, Subscription, DataModel
                      )
+
+from pycarol import CDSGolden
+from pycarol.query import delete_golden
 from collections import defaultdict
 import random
 import time
 import logging
+from joblib import Parallel, delayed
+from itertools import chain
+
+def cancel_tasks(login, task_list, logger=None):
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+    carol_task = Tasks(login)
+    for i in task_list:
+        logger.debug(f"Canceling {i}")
+        carol_task.cancel(task_id=i, force=True)
+
+    return
+
 
 def track_tasks(login, task_list, do_not_retry=False, logger=None):
     if logger is None:
@@ -192,4 +209,140 @@ def play_subscriptions(login, dm_list, logger):
     return
 
 
+def find_task_types(login):
 
+    #TODO can user Query from pycarol
+    uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=1000&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
+
+    task_type =  ["PROCESS_CDS_STAGING_DATA", "REPROCESS_SEARCH_RESULT"]
+    task_status = ["READY", "RUNNING"]
+
+    query = {"mustList": [{"mdmFilterType": "TYPE_FILTER", "mdmValue": "mdmTask"},
+                          {"mdmKey": "mdmTaskType.raw", "mdmFilterType": "TERMS_FILTER",
+                           "mdmValue": task_type},
+                          {"mdmKey": "mdmTaskStatus.raw", "mdmFilterType": "TERMS_FILTER",
+                           "mdmValue": task_status}]
+             }
+
+    r = login.call_api(path=uri, method='POST', data=query)['hits']
+    return r
+
+
+def pause_etls(login, etl_list, connector_name, logger):
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+    r = {}
+    conn = Connectors(login)
+    for staging_name in etl_list:
+        logger.debug(f'Pausing {staging_name} ETLs')
+        r[staging_name] = conn.pause_etl(connector_name=connector_name, staging_name=staging_name)
+
+    if not all(i['success'] for _, i in r.items()):
+        logger.error(f'Some ETLs were not paused. {r}')
+        raise ValueError(f'Some ETLs were not paused. {r}')
+
+
+def pause_dms(login, dm_list, connector_name):
+
+    conn = Connectors(login)
+    mappings = conn.get_dm_mappings(connector_name=connector_name, )
+    mappings = [i['mdmId'] for i in mappings if
+                (i['mdmRunningState'] == 'RUNNING') and i['mdmMasterEntityName'] in dm_list]
+
+    r = conn.pause_mapping(connector_name=connector_name, entity_mapping_id=mappings)
+
+
+def par_consolidate(login, staging_name, connector_name):
+    cds_stag = CDSStaging(login)
+    n_r = cds_stag.count(staging_name=staging_name, connector_name=connector_name)
+    if n_r > 5000000:
+        worker_type = 'n1-highmem-16'
+        max_number_workers = 16
+    else:
+        worker_type = 'n1-highmem-4'
+        max_number_workers = 16
+    number_shards = round(n_r / 100000) + 1
+    number_shards = max(16, number_shards)
+    task_id = cds_stag.consolidate(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
+                                   number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers)
+    return task_id
+
+
+def consolidate_stagings(login, connector_name, staging_list, n_jobs=5, logger=None):
+
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+
+    tasks = []
+    task_id = Parallel(n_jobs=n_jobs, backend='threading')(delayed(par_consolidate)(login, staging_name=i,
+                                                                               connector_name=connector_name)
+                                                      for i in staging_list)
+
+    task_list = [i['data']['mdmId'] for i in tasks]
+
+    return task_list
+
+def par_delete_golden(login, dm_list, n_jobs=5):
+
+    tasks = []
+    def del_golden(dm_name, login):
+
+        t = []
+        dm_id = DataModel(login).get_by_name(dm_name)['mdmId']
+        task = login.call_api("v2/cds/rejected/clearData", method='POST', params={'entityTemplateId': dm_id})['taskId']
+        t += [task]
+        cds_CDSGolden = CDSGolden(login)
+        t = cds_CDSGolden.delete(dm_id=dm_id, )
+        delete_golden(login, dm_name)
+        t += [t['taskId'], ]
+        return t
+
+    tasks = Parallel(n_jobs=n_jobs)(delayed(del_golden)(i, login) for i in dm_list)
+    return list(chain(*tasks))
+
+
+def resume_process(login, connector_name, staging_name, logger=None):
+
+    if logger is None:
+        logger = logging.getLogger(login.tenant)
+
+    conn = Connectors(login)
+    connector_id = conn.get_by_name(connector_name)['mdmId']
+
+    # TODO Review this once we have mapping and ETLs in the same staging.
+    # Play ETLs if any.
+    resp = conn.play_etl(connector_id=connector_id, staging_name=staging_name)
+    if not resp['success']:
+        logger.error(f'Problem starting ETL {connector_name}/{staging_name}\n {resp}')
+        raise ValueError(f'Problem starting ETL {connector_name}/{staging_name}\n {resp}')
+
+    # Play mapping if any.
+    mappings_ = check_mapping(connector_name, staging_name, )
+    if mappings_ is not None:
+        # TODO: here assuming only one mapping per staging.
+        mappings_ = mappings_[0]
+        conn.play_mapping(connector_name=connector_name, entity_mapping_id=mappings_['mdmId'],
+                          process_cds=False, )
+
+    # wait for mapping effect.
+    time.sleep(1)
+    return mappings_
+
+
+def check_mapping(connector_name, staging_name):
+    login = Carol()
+    conn = Connectors(login)
+    resp = conn.get_entity_mappings(connector_name=connector_name, staging_name=staging_name,
+                                    errors='ignore'
+                                    )
+
+    if isinstance(resp, dict):
+        if resp['errorCode'] == 404 and 'Entity mapping not found' in resp['errorMessage']:
+            return None
+        else:
+            logger.error(f'Error checking mapping {resp}')
+            raise ValueError(f'Error checking mapping {resp}')
+
+    return resp
