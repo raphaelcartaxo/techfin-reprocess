@@ -1,6 +1,11 @@
 import gspread
 import datetime
 
+gc = gspread.oauth()
+sh = gc.open("status_techfin_reprocess")
+techfin_worksheet = sh.worksheet("status")
+# folder with creds /Users/rafarui/.config/gspread
+
 
 def find_tenant(techfin_worksheet, domain):
     if techfin_worksheet is None:

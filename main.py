@@ -1,25 +1,16 @@
-from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging
+from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging, Connectors
 from pycarol import Tasks
 import random
 import time
 import os
 from dotenv import load_dotenv
 from joblib import Parallel, delayed
-import sheet_utils
+from functions import sheet_utils, carol_login, carol_apps, carol_task
 import argparse
 from slacker_log_handler import SlackerLogHandler
 import logging
-from pycarol.apps import Apps
-from collections import defaultdict
-import gspread
 
 load_dotenv('.env', override=True)
-
-gc = gspread.oauth()
-sh = gc.open("status_techfin_reprocess")
-techfin_worksheet = sh.worksheet("status")
-# folder with creds /Users/rafarui/.config/gspread
-
 
 # Arguments to run via console.
 parser = argparse.ArgumentParser(
@@ -36,129 +27,6 @@ parser.add_argument("--skip-consolidate",
                     help='Skip Consolidate')
 
 args = parser.parse_args()
-
-
-
-
-def get_login(domain, org):
-    email = os.environ['CAROLUSER']
-    password = os.environ['CAROLPWD']
-    carol_app = 'techfinplatform'
-    login = Carol(domain, carol_app, auth=PwdAuth(email, password), organization=org, )
-    api_key = login.issue_api_key()
-
-    login = Carol(domain, carol_app, auth=ApiKeyAuth(api_key['X-Auth-Key']),
-                  connector_id=api_key['X-Auth-ConnectorId'], organization=org, )
-    return login
-
-
-def track_tasks(login, task_list, do_not_retry=False, logger=None):
-    retry_tasks = defaultdict(int)
-    n_task = len(task_list)
-    max_retries = set()
-    carol_task = Tasks(login)
-    while True:
-        task_status = defaultdict(list)
-        for task in task_list:
-            status = carol_task.get_task(task).task_status
-            task_status[status].append(task)
-        for task in task_status['FAILED'] + task_status['CANCELED']:
-            logger.warning(f'Something went wrong while processing: {task}')
-            retry_tasks[task] += 1
-            if do_not_retry:
-                logger.error(f'Task: {task} failed. It wll not be restarted.')
-                continue
-            if retry_tasks[task] > 3:
-                max_retries.update([task])
-                logger.error(f'Task: {task} failed 3 times. will not restart')
-                continue
-
-            logger.info(f'Retry task: {task}')
-            login.call_api(path=f'v1/tasks/{task}/reprocess', method='POST')
-
-        if len(task_status['COMPLETED']) == n_task:
-            logger.debug(f'All task finished')
-            return task_status, False
-
-        elif len(max_retries) + len(task_status['COMPLETED']) == n_task:
-            logger.warning(f'There are {len(max_retries)} failed tasks.')
-            return task_status, True
-        else:
-            time.sleep(round(10 + random.random() * 5, 2))
-            logger.debug('Waiting for tasks')
-
-
-def update_app(login, app_name, app_version, logger):
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
-
-    #check if stall task is running.
-    uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=25&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
-
-    query = {"mustList": [{"mdmFilterType": "TYPE_FILTER", "mdmValue": "mdmTask"},
-                          {"mdmKey": "mdmTaskType.raw", "mdmFilterType": "TERMS_FILTER",
-                           "mdmValue": ["INSTALL_CAROL_APP"]},
-                          {"mdmKey": "mdmTaskStatus.raw", "mdmFilterType": "TERMS_FILTER", "mdmValue": ["RUNNING"]}],
-             "mustNotList": [{"mdmKey": "mdmUserId.raw", "mdmFilterType": "MATCH_FILTER", "mdmValue": ""}],
-             "shouldList": []}
-
-    r = login.call_api(path=uri, method='POST', data=query)
-    if len(r['hits']) >= 1:
-        logger.info(f'Found install task in {login.domain}')
-        task_id = r['hits'][0]['mdmId']
-        installing_version = r['hits'][0]['mdmData']['carolAppVersion']
-        try:
-            task_list, fail = track_tasks(login, [task_id], logger=logger)
-            if installing_version == app_version:
-                return task_list, False
-        except Exception as e:
-            logger.error("error fetching already running task, will try again", exc_info=1)
-            fail = True
-
-    to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
-    to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
-    if to_install:
-        to_install = to_install[0]
-        assert to_install["mdmAppVersion"] == app_version
-        to_install_id = to_install['mdmId']
-        updated = login.call_api(f"v1/tenantApps/subscribe/carolApps/{to_install_id}", method='POST')
-        params = {"publish": True, "connectorGroup": "protheus"}
-        install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
-        install_task = install_task['mdmId']
-    else:
-        #check failed task
-        task = check_failed_instalL(login, app_name, app_version)
-        if task:
-            install_task = login.call_api(f'v1/tasks/{task}/reprocess', method="POST")['mdmId']
-        else:
-            logger.error("Error trying to update app")
-            sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - did not found app to install')
-            return [], True
-
-
-    task_list = []
-    try:
-        task_list, fail = track_tasks(login, [install_task], logger=logger)
-    except Exception as e:
-        logger.error("error after app install", exc_info=1)
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} during App installation.")
-        sheet_utils.update_task_id(techfin_worksheet, current_cell.row, install_task)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - app install')
-        return [], fail
-
-    return task_list, False
-
-
-def check_failed_instalL(login, app_name, app_version):
-    app = login.call_api("v1/tenantApps?pageSize=-1", method='GET')
-    app = [i for i in app['hits'] if (i["mdmName"] == app_name and
-                                      i["mdmAppVersion"] == app_version and
-                                      i['mdmInstallationTaskStatus'] == 'FAILED')]
-    if app:
-        app = app[0]['mdmInstallationTaskId']
-        return app
 
 
 def par_processing(login, staging_name, connector_name, delete_realtime_records=False,
@@ -180,11 +48,6 @@ def par_processing(login, staging_name, connector_name, delete_realtime_records=
     return task_id
 
 
-def get_app_version(login, app_name, version):
-    app = Apps(login)
-    app_info = app.get_by_name(app_name)
-    return app_info['mdmAppVersion']
-
 
 def run(domain, org='totvstechfin'):
 
@@ -192,7 +55,7 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.61'
+    app_version = '0.0.63'
     connector_name = 'protheus_carol'
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -207,32 +70,56 @@ def run(domain, org='totvstechfin'):
     console.setLevel(logging.DEBUG)
     logger.addHandler(console)
 
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, domain)
-    status = techfin_worksheet.row_values(current_cell.row)[-1]
+    current_cell = sheet_utils.find_tenant(sheet_utils.techfin_worksheet, domain)
+    status = sheet_utils.techfin_worksheet.row_values(current_cell.row)[-1].strip().lower()
 
-    if 'done' in status.strip().lower() or 'failed' in status.strip().lower() or 'running' in status.strip().lower()\
-            or "Installing app" == status or "Reprocessing stagings"==status:
+    skip_status = ['done', 'failed', 'wait', 'running', 'installing', 'reprocessing']
+    if any(i in status for i in skip_status):
         logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
-    login = get_login(domain, org)
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Running")
-    sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
+    login = carol_login.get_login(domain, org)
+    sheet_utils.update_start_time(sheet_utils.techfin_worksheet, current_cell.row)
 
+    # Dropping stagings.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
     logger.info(f"Starting process {domain}")
+    st = carol_task.get_all_stagings(login, connector_name=connector_name)
+    st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
+    tasks, fail = carol_task.drop_staging(login, staging_list=st)
+    if fail:
+        logger.error(f"error dropping staging {domain}")
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+        return
+
+    try:
+        task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
+    except Exception as e:
+        logger.error("error dropping staging", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+        return
+
+
+    # Drop ETL SE1, SE2.
+    to_drop = ['se1', 'se2']
+    to_delete = [i for i in carol_task.get_all_etls(login, connector_name=connector_name) if
+                 (i['mdmSourceEntityName'] in to_drop)]
+
+    carol_task.drop_etls(login, etl_list=to_delete)
+
 
     # Intall app.
-    current_version = get_app_version(login, app_name, app_version)
+    current_version = carol_apps.get_app_version(login, app_name, app_version)
     fail = False
     if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing app")
-        _, fail = update_app(login, app_name, app_version, logger)
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Installing app")
+        _, fail = carol_apps.update_app(login, app_name, app_version, logger)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
     else:
         logger.info(f"Running version {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
 
     if fail:
         return
@@ -241,7 +128,7 @@ def run(domain, org='totvstechfin'):
         'sf2_invoicebra',
     ]
 
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Reprocessing stagings")
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Reprocessing stagings")
 
     tasks_to_track = []
     for i, staging_name in enumerate(to_reprocess):
@@ -255,27 +142,27 @@ def run(domain, org='totvstechfin'):
         tasks_to_track.append(task['data']['mdmId'])
 
     try:
-        task_list, fail = track_tasks(login, tasks_to_track, logger=logger)
+        task_list, fail = carol_task.track_tasks(login, tasks_to_track, logger=logger)
     except Exception as e:
         logger.error("error after app install", exc_info=1)
         fail = True
 
     if fail:
         logger.error(f"Problem with {login.domain} during reprocess.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - reprocess')
-        sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, 'FAILED - reprocess')
+        sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
         return
 
     logger.info(f"Finished all process {domain}")
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Done")
-    sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Done")
+    sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
 
     return task_list
 
 
 if __name__ == "__main__":
 
-    table = techfin_worksheet.get_all_records()
+    table = sheet_utils.techfin_worksheet.get_all_records()
     table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None
              and t.get('Status', '') != 'Done'
              ]
