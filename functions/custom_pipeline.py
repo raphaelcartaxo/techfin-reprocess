@@ -67,7 +67,7 @@ def get_dag():
 def run_custom_pipeline(login, connector_name, logger):
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
     dag = get_dag()
 
     for p in dag:
@@ -80,7 +80,8 @@ def run_custom_pipeline(login, connector_name, logger):
             pass
         for staging_name in stagings:
             logger.debug(f"processing {staging_name}")
-            mappings_ = carol_task.resume_process(connector_name=connector_name, staging_name=staging_name)
+            mappings_ = carol_task.resume_process(login, connector_name=connector_name,
+                                                  staging_name=staging_name,logger=logger)
             task_id = CDSStaging(login).process_data(staging_name, connector_name=connector_name, max_number_workers=16,
                                                      delete_target_folder=False, delete_realtime_records=False,
                                                      recursive_processing=False)

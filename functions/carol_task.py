@@ -13,7 +13,7 @@ from itertools import chain
 
 def cancel_tasks(login, task_list, logger=None):
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     carol_task = Tasks(login)
     for i in task_list:
@@ -25,7 +25,7 @@ def cancel_tasks(login, task_list, logger=None):
 
 def track_tasks(login, task_list, do_not_retry=False, logger=None):
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     retry_tasks = defaultdict(int)
     n_task = len(task_list)
@@ -73,7 +73,7 @@ def drop_staging(login, staging_list, logger=None):
             List of stagings to drop
         logger:
             Logger to be used. If None will use
-                logger = logging.getLogger(login.tenant)
+                logger = logging.getLogger(login.domain)
 
     Returns: list, status
         List of tasks created, fail status.
@@ -81,7 +81,7 @@ def drop_staging(login, staging_list, logger=None):
     """
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     tasks = []
     for i in staging_list:
@@ -178,7 +178,7 @@ def par_processing(login, staging_name, connector_name, delete_realtime_records=
 def pause_and_clear_subscriptions(login, dm_list, logger):
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     subs = Subscription(login)
 
@@ -195,7 +195,7 @@ def pause_and_clear_subscriptions(login, dm_list, logger):
 def play_subscriptions(login, dm_list, logger):
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     subs = Subscription(login)
 
@@ -230,7 +230,7 @@ def find_task_types(login):
 
 def pause_etls(login, etl_list, connector_name, logger):
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     r = {}
     conn = Connectors(login)
@@ -272,7 +272,7 @@ def par_consolidate(login, staging_name, connector_name):
 def consolidate_stagings(login, connector_name, staging_list, n_jobs=5, logger=None):
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
 
     tasks = []
@@ -294,9 +294,9 @@ def par_delete_golden(login, dm_list, n_jobs=5):
         task = login.call_api("v2/cds/rejected/clearData", method='POST', params={'entityTemplateId': dm_id})['taskId']
         t += [task]
         cds_CDSGolden = CDSGolden(login)
-        t = cds_CDSGolden.delete(dm_id=dm_id, )
+        task = cds_CDSGolden.delete(dm_id=dm_id, )
         delete_golden(login, dm_name)
-        t += [t['taskId'], ]
+        t += [task['taskId'], ]
         return t
 
     tasks = Parallel(n_jobs=n_jobs)(delayed(del_golden)(i, login) for i in dm_list)
@@ -306,7 +306,7 @@ def par_delete_golden(login, dm_list, n_jobs=5):
 def resume_process(login, connector_name, staging_name, logger=None):
 
     if logger is None:
-        logger = logging.getLogger(login.tenant)
+        logger = logging.getLogger(login.domain)
 
     conn = Connectors(login)
     connector_id = conn.get_by_name(connector_name)['mdmId']
@@ -319,7 +319,7 @@ def resume_process(login, connector_name, staging_name, logger=None):
         raise ValueError(f'Problem starting ETL {connector_name}/{staging_name}\n {resp}')
 
     # Play mapping if any.
-    mappings_ = check_mapping(connector_name, staging_name, )
+    mappings_ = check_mapping(login, connector_name, staging_name, )
     if mappings_ is not None:
         # TODO: here assuming only one mapping per staging.
         mappings_ = mappings_[0]
@@ -331,8 +331,7 @@ def resume_process(login, connector_name, staging_name, logger=None):
     return mappings_
 
 
-def check_mapping(connector_name, staging_name):
-    login = Carol()
+def check_mapping(login, connector_name, staging_name):
     conn = Connectors(login)
     resp = conn.get_entity_mappings(connector_name=connector_name, staging_name=staging_name,
                                     errors='ignore'

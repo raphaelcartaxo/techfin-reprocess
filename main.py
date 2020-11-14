@@ -70,6 +70,40 @@ def run(domain, org='totvstechfin'):
     dms = [i.replace('DM_', '') for i in dag if i.startswith('DM_')]
     staging_list = [i for i in dag if not i.startswith('DM_')]
 
+    current_version = carol_apps.get_app_version(login, app_name, app_version)
+
+    if current_version != app_version:
+        # Dropping stagings.
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
+        logger.info(f"Starting process {domain}")
+        st = carol_task.get_all_stagings(login, connector_name=connector_name)
+        st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
+        tasks, fail = carol_task.drop_staging(login, staging_list=st, logger=logger)
+        if fail:
+            logger.error(f"error dropping staging {domain}")
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+            return
+        try:
+            task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
+        except Exception as e:
+            logger.error("error dropping staging", exc_info=1)
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+            return
+
+        # Drop ETL SE1, SE2.
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop ETLs")
+        to_drop = ['se1', 'se2']
+        to_delete = [i for i in carol_task.get_all_etls(login, connector_name=connector_name) if
+                     (i['mdmSourceEntityName'] in to_drop)]
+
+        try:
+            carol_task.drop_etls(login, etl_list=to_delete)
+        except:
+            logger.error("error dropping ETLs", exc_info=1)
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping ETLs")
+            return
+
+
     # Stop pub/sub if any.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - stop pubsub")
     try:
@@ -85,35 +119,6 @@ def run(domain, org='totvstechfin'):
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
         return
 
-    # Dropping stagings.
-    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
-    logger.info(f"Starting process {domain}")
-    st = carol_task.get_all_stagings(login, connector_name=connector_name)
-    st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
-    tasks, fail = carol_task.drop_staging(login, staging_list=st)
-    if fail:
-        logger.error(f"error dropping staging {domain}")
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
-        return
-    try:
-        task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
-    except Exception as e:
-        logger.error("error dropping staging", exc_info=1)
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
-        return
-
-    # Drop ETL SE1, SE2.
-    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop ETLs")
-    to_drop = ['se1', 'se2']
-    to_delete = [i for i in carol_task.get_all_etls(login, connector_name=connector_name) if
-                 (i['mdmSourceEntityName'] in to_drop)]
-
-    try:
-        carol_task.drop_etls(login, etl_list=to_delete)
-    except:
-        logger.error("error dropping ETLs", exc_info=1)
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping ETLs")
-        return
 
     # Install app.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
@@ -142,7 +147,6 @@ def run(domain, org='totvstechfin'):
     pross_task = [i['mdmId'] for i in pross_tasks]
     if pross_task:
         carol_task.cancel_tasks(login, pross_task)
-
 
     # pause ETLs.
     carol_task.pause_etls(login, etl_list=staging_list, connector_name=connector_name, logger=logger)
@@ -205,9 +209,11 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    table = [t['environmentName (tenantID)'] for t in table if t.get('environmentName (tenantID)', None) is not None
+    table = [t['environmentName (tenantID)'].strip() for t in table if t.get('environmentName (tenantID)', None) is not None
              and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
              ]
+
+    run(table[0])
 
     import multiprocessing
 
