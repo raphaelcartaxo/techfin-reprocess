@@ -193,7 +193,9 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    table = [t['environmentName (tenantID)'].strip() for t in table if t.get('environmentName (tenantID)', None) is not None
+    table = [t['environmentName (tenantID)'].strip() for t in table
+             if t.get('environmentName (tenantID)', None) is not None
+             and t.get('environmentName (tenantID)', 'None') != ''
              and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
              ]
 
