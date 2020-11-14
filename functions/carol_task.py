@@ -275,12 +275,11 @@ def consolidate_stagings(login, connector_name, staging_list, n_jobs=5, logger=N
         logger = logging.getLogger(login.domain)
 
 
-    tasks = []
     task_id = Parallel(n_jobs=n_jobs, backend='threading')(delayed(par_consolidate)(login, staging_name=i,
                                                                                connector_name=connector_name)
                                                       for i in staging_list)
 
-    task_list = [i['data']['mdmId'] for i in tasks]
+    task_list = [i['data']['mdmId'] for i in task_id]
 
     return task_list
 
