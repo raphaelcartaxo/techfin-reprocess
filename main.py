@@ -13,22 +13,6 @@ from functools import reduce
 
 load_dotenv('.env', override=True)
 
-# Arguments to run via console.
-parser = argparse.ArgumentParser(
-    description='reprocess techfin tenants')
-parser.add_argument("-t", '--tenant',
-                    type=str,  # required=True,
-                    help='Tenant Name')
-parser.add_argument("-o", '--org',
-                    type=str,  # required=True,
-                    help='organization')
-
-parser.add_argument("--skip-consolidate",
-                    action='store_true',
-                    help='Skip Consolidate')
-
-args = parser.parse_args()
-
 def run(domain, org='totvstechfin'):
     # avoid all tasks starting at the same time.
     time.sleep(round(1 + random.random() * 6, 2))
