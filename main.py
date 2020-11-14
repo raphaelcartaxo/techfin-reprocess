@@ -197,8 +197,6 @@ if __name__ == "__main__":
              and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
              ]
 
-    run(table[0])
-
     import multiprocessing
 
     pool = multiprocessing.Pool(6)
