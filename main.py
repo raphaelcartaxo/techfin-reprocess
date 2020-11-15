@@ -122,7 +122,6 @@ def run(domain, org='totvstechfin'):
     if fail:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row,
                                   'failed - app install')
-        sheet_utils.update_task_id(sheet_utils.techfin_worksheet, current_cell.row, task_list)
         return
 
     # Cancel unwanted tasks.

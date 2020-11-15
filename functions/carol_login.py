@@ -1,7 +1,7 @@
 from pycarol import Carol, ApiKeyAuth, PwdAuth, Tasks
 import os
 
-from . import sheet_utils
+from . import sheet_utils, carol_apps, carol_task
 
 
 def get_login(domain, org):
@@ -36,7 +36,7 @@ def update_app(login, app_name, app_version, logger):
         task_id = r['hits'][0]['mdmId']
         installing_version = r['hits'][0]['mdmData']['carolAppVersion']
         try:
-            task_list, fail = track_tasks(login, [task_id], logger=logger)
+            task_list, fail = carol_task.track_tasks(login, [task_id], logger=logger)
             if installing_version == app_version:
                 return task_list, False
         except Exception as e:
@@ -55,26 +55,23 @@ def update_app(login, app_name, app_version, logger):
         install_task = install_task['mdmId']
     else:
         #check failed task
-        task = check_failed_instalL(login, app_name, app_version)
+        task = carol_apps.carol_appscheck_failed_instalL(login, app_name, app_version)
         if task:
             install_task = login.call_api(f'v1/tasks/{task}/reprocess', method="POST")['mdmId']
         else:
             logger.error("Error trying to update app")
-            sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - did not found app to install')
             return [], True
 
 
     task_list = []
     try:
-        task_list, fail = track_tasks(login, [install_task], logger=logger)
+        task_list, fail = carol_task.track_tasks(login, [install_task], logger=logger)
     except Exception as e:
         logger.error("error after app install", exc_info=1)
         fail = True
 
     if fail:
         logger.error(f"Problem with {login.domain} during App installation.")
-        sheet_utils.update_task_id(techfin_worksheet, current_cell.row, install_task)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED - app install')
         return [], fail
 
     return task_list, False
