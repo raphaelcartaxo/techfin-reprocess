@@ -3,3 +3,4 @@ gspread
 joblib
 slacker-log-handler
 python-dotenv
+toposort

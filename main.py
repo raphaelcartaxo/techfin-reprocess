@@ -1,218 +1,28 @@
-from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging
+from pycarol import Carol, ApiKeyAuth, PwdAuth, CDSStaging, Connectors
 from pycarol import Tasks
 import random
 import time
 import os
 from dotenv import load_dotenv
 from joblib import Parallel, delayed
-import sheet_utils
+from functions import sheet_utils, carol_login, carol_apps, carol_task, custom_pipeline
 import argparse
 from slacker_log_handler import SlackerLogHandler
 import logging
-from pycarol.apps import Apps
-from collections import defaultdict
-import gspread
+from functools import reduce
 
 load_dotenv('.env', override=True)
 
-gc = gspread.oauth()
-sh = gc.open("status_techfin_reprocess")
-techfin_worksheet = sh.worksheet("status")
-# folder with creds /Users/rafarui/.config/gspread
-
-
-# Arguments to run via console.
-parser = argparse.ArgumentParser(
-    description='reprocess techfin tenants')
-parser.add_argument("-t", '--tenant',
-                    type=str,  # required=True,
-                    help='Tenant Name')
-parser.add_argument("-o", '--org',
-                    type=str,  # required=True,
-                    help='organization')
-
-parser.add_argument("--skip-consolidate",
-                    action='store_true',
-                    help='Skip Consolidate')
-
-args = parser.parse_args()
-
-
-def update_settings(login):
-    app = Apps(login)
-    app_name = 'techfinplatform'
-    app_id = app.get_by_name(app_name)['mdmId']
-
-    data = [{"mdmName": "skip_pause", "mdmParameterValue": False},
-            {"mdmName": "clean_dm", "mdmParameterValue": True},
-            {"mdmName": "clean_etls", "mdmParameterValue": True}]
-
-    settings_id = login.call_api(path=f'v1/tenantApps/{app_id}/settings', )['mdmId']
-
-    _ = login.call_api(path=f'v1/tenantApps/{app_id}/settings/{settings_id}?publish=true', method='PUT', data=data)
-
-
-def get_login(domain, org):
-    email = os.environ['CAROLUSER']
-    password = os.environ['CAROLPWD']
-    carol_app = 'techfinplatform'
-    login = Carol(domain, carol_app, auth=PwdAuth(email, password), organization=org, )
-    api_key = login.issue_api_key()
-
-    login = Carol(domain, carol_app, auth=ApiKeyAuth(api_key['X-Auth-Key']),
-                  connector_id=api_key['X-Auth-ConnectorId'], organization=org, )
-    return login
-
-
-def par_consolidate(login, staging_name, connector_name):
-    cds_stag = CDSStaging(login)
-    n_r = cds_stag.count(staging_name=staging_name, connector_name=connector_name)
-    if n_r > 5000000:
-        worker_type = 'n1-highmem-16'
-        max_number_workers = 16
-    else:
-        worker_type = 'n1-highmem-4'
-        max_number_workers = 16
-    number_shards = round(n_r / 100000) + 1
-    number_shards = max(16, number_shards)
-    task_id = cds_stag.consolidate(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
-                                   number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers)
-    return task_id
-
-
-def consolidate_stagings(login):
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
-    #TODO: Need to rethink how to do this. If need tables are added need to change here.
-    main_tables = ['ar1', 'cko', 'company', 'ct1', 'ctl', 'ctt', 'currency', 'cv3', 'cvd', 'fk1',
-                   'fk2', 'fk5', 'fk7', 'fkc', 'fkd', 'frv', 'invoicexml', 'mapping', 'organization',
-                   'paymentstype', 'sa1', 'sa2', 'sa6', 'sd1', 'sd2', 'se1', 'se2', 'se8', 'sea', 'sf1', 'sf2',
-                   'sf4', 'protheus_sharing']
-
-    tasks = defaultdict(list)
-    task_id = Parallel(n_jobs=5, backend='threading')(delayed(par_consolidate)(login, staging_name=i,
-                                                                               connector_name='protheus_carol')
-                                                      for i in main_tables)
-    tasks[domain].extend(task_id)
-    task_list = [i['data']['mdmId'] for i in tasks[login.domain]]
-
-    try:
-        task_list, fail = track_tasks(login, task_list)
-    except:
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} durring consolidate.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
-        exit(1)
-
-    return task_list
-
-
-def track_tasks(login, task_list, do_not_retry=False):
-    retry_tasks = defaultdict(int)
-    n_task = len(task_list)
-    max_retries = set()
-    carol_task = Tasks(login)
-    while True:
-        task_status = defaultdict(list)
-        for task in task_list:
-            status = carol_task.get_task(task).task_status
-            task_status[status].append(task)
-        for task in task_status['FAILED'] + task_status['CANCELED']:
-            logger.warning(f'Something went wrong while processing: {task}')
-            retry_tasks[task] += 1
-            if do_not_retry:
-                logger.error(f'Task: {task} failed. It wll not be restarted.')
-                continue
-            if retry_tasks[task] > 3:
-                max_retries.update([task])
-                logger.error(f'Task: {task} failed 3 times. will not restart')
-                continue
-
-            logger.info(f'Retry task: {task}')
-            login.call_api(path=f'v1/tasks/{task}/reprocess', method='POST')
-
-        if len(task_status['COMPLETED']) == n_task:
-            logger.debug(f'All task finished')
-            return task_status, False
-
-        elif len(max_retries) + len(task_status['COMPLETED']) == n_task:
-            logger.warning(f'There are {len(max_retries)} failed tasks.')
-            return task_status, True
-        else:
-            time.sleep(round(10 + random.random() * 5, 2))
-            logger.debug('Waiting for tasks')
-
-
-def run_app(login, app_name, process_name, ):
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
-
-    task_list = []
-    app = Apps(login)
-    app_id = app.get_by_name(app_name)['mdmId']
-
-    params = {"entitySpace": "WORKING", "checkAllSpaces": True}
-    process_id = login.call_api(f"v1/tenantApps/{app_id}/aiprocesses", method='GET', params=params)["mdmId"]
-    process_id = login.call_api(f"v1/tenantApps/{app_id}/aiprocesses/{process_id}/execute/{process_name}",
-                                method='POST')["data"]["mdmId"]
-
-    try:
-        task_list, fail = track_tasks(login, [process_id], do_not_retry=True)
-    except:
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} during Processing.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
-        exit(1)
-    return task_list
-
-
-def update_app(login, app_name, app_version):
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
-
-    to_install = login.call_api("v1/tenantApps/subscribableCarolApps", method='GET')
-    to_install = [i for i in to_install['hits'] if i["mdmName"] == app_name]
-    if to_install:
-        to_install = to_install[0]
-        assert to_install["mdmAppVersion"] == app_version
-        to_install_id = to_install['mdmId']
-    else:
-        logger.error("Error trying to update app")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
-        exit(1)
-    updated = login.call_api(f"v1/tenantApps/subscribe/carolApps/{to_install_id}", method='POST')
-    params = {"publish": True, "connectorGroup": "protheus"}
-    install_task = login.call_api(f"v1/tenantApps/{updated['mdmId']}/install", method='POST', params=params)
-    install_task = install_task['mdmId']
-
-    try:
-        task_list, fail = track_tasks(login, [install_task])
-    except:
-        fail = True
-
-    if fail:
-        logger.error(f"Problem with {login.domain} during App installation.")
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, 'FAILED')
-        exit(1)
-    return task_list
-
-
-def get_app_version(login, app_name, version):
-    app = Apps(login)
-    app_info = app.get_by_name(app_name)
-    return app_info['mdmAppVersion']
-
-
-if __name__ == "__main__":
-
-    domain = args.tenant
-    org = args.org
-    skip_consolidate = args.skip_consolidate
-
+def run(domain, org='totvstechfin'):
+    # avoid all tasks starting at the same time.
+    time.sleep(round(1 + random.random() * 6, 2))
+    org = 'totvstechfin'
     app_name = "techfinplatform"
-    process_name = "processAll"
-    app_version = '0.0.60'
+    app_version = '0.0.63'
+    connector_name = 'protheus_carol'
+    connector_group = 'protheus'
+
+    consolidate_list = ['se1', 'fk1', 'se2', 'fk2']
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -227,42 +37,170 @@ if __name__ == "__main__":
     console.setLevel(logging.DEBUG)
     logger.addHandler(console)
 
-    login = get_login(domain, org)
+    current_cell = sheet_utils.find_tenant(sheet_utils.techfin_worksheet, domain)
+    status = sheet_utils.techfin_worksheet.row_values(current_cell.row)[-1].strip().lower()
 
-    current_cell = sheet_utils.find_tenant(techfin_worksheet, login.domain)
-    if not current_cell:
-        logger.error(f"{login.domain} not found in the sheet")
-        raise ValueError
+    skip_status = ['done', 'failed', 'wait', 'running', 'installing', 'reprocessing']
+    if any(i in status for i in skip_status):
+        logger.info(f"Nothing to do in {domain}, status {status}")
+        return
 
-    sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
-    logger.info(f"Starting process {domain}")
+    login = carol_login.get_login(domain, org)
+    sheet_utils.update_start_time(sheet_utils.techfin_worksheet, current_cell.row)
 
-    # Intall app.
-    current_version = get_app_version(login, app_name, app_version)
+
+    dag = custom_pipeline.get_dag()
+    dag = list(reduce(set.union, custom_pipeline.get_dag()))
+    dms = [i.replace('DM_', '') for i in dag if i.startswith('DM_')]
+    staging_list = [i for i in dag if not i.startswith('DM_')]
+
+    current_version = carol_apps.get_app_version(login, app_name, app_version)
+
+    if current_version != app_version:
+        # Dropping stagings.
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
+        logger.info(f"Starting process {domain}")
+        st = carol_task.get_all_stagings(login, connector_name=connector_name)
+        st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
+        tasks, fail = carol_task.drop_staging(login, staging_list=st, logger=logger)
+        if fail:
+            logger.error(f"error dropping staging {domain}")
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+            return
+        try:
+            task_list, fail = carol_task.track_tasks(login, tasks, logger=logger)
+        except Exception as e:
+            logger.error("error dropping staging", exc_info=1)
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
+            return
+
+        # Drop ETL SE1, SE2.
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop ETLs")
+        to_drop = ['se1', 'se2']
+        to_delete = [i for i in carol_task.get_all_etls(login, connector_name=connector_name) if
+                     (i['mdmSourceEntityName'] in to_drop)]
+
+        try:
+            carol_task.drop_etls(login, etl_list=to_delete)
+        except:
+            logger.error("error dropping ETLs", exc_info=1)
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping ETLs")
+            return
+
+
+    # Stop pub/sub if any.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - stop pubsub")
+    try:
+        carol_task.pause_and_clear_subscriptions(login, dms, logger)
+    except Exception as e:
+        logger.error("error stop pubsub", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - stop pubsub")
+        return
+    try:
+        carol_task.play_subscriptions(login, dms, logger)
+    except Exception as e:
+        logger.error("error playing pubsub", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
+        return
+
+
+    # Install app.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
+    current_version = carol_apps.get_app_version(login, app_name, app_version)
+    fail = False
+    task_list = '__unk__'
     if current_version != app_version:
         logger.info(f"Updating app from {current_version} to {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Installing+consolidate+appRunning")
-        update_app(login, app_name, app_version)
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
+        task_list, fail = carol_apps.update_app(login, app_name, app_version, logger, connector_group=connector_group)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
     else:
         logger.info(f"Running version {app_version}")
-        sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
 
-    # Update app params.
-    update_settings(login)
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row,
+                                  'failed - app install')
+        return
 
-    # consolidate.
-    if not skip_consolidate:
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Consolidating + appRunning")
-        logger.info(f"Staging consolidate {domain}")
-        _ = consolidate_stagings(login)
-        logger.info(f"Done consolidate {domain}")
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Process")
-    logger.info(f"Starting app {domain}")
+    # Cancel unwanted tasks.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - canceling tasks")
+    pross_tasks = carol_task.find_task_types(login)
+    pross_task = [i['mdmId'] for i in pross_tasks]
+    if pross_task:
+        carol_task.cancel_tasks(login, pross_task)
 
-    # run app.
-    _ = run_app(login, app_name=app_name, process_name=process_name)
+    # pause ETLs.
+    carol_task.pause_etls(login, etl_list=staging_list, connector_name=connector_name, logger=logger)
+    # pause mappings.
+    carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name,)
+
+    # consolidate
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - consolidate")
+    task_list = carol_task.consolidate_stagings(login, connector_name=connector_name, staging_list=consolidate_list,
+                                    n_jobs=1, logger=logger)
+
+    try:
+        task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
+    except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
+        logger.error("error after app install", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
+        logger.error("error after app install")
+        return
+
+    # delete DMs
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete DMs")
+    task_list = carol_task.par_delete_golden(login, dm_list=dms, n_jobs=1)
+    try:
+        task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
+    except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete DMs")
+        logger.error("error after app install", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
+        logger.error("error after app install")
+        return
+
+
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - processing")
+    try:
+        fail = custom_pipeline.run_custom_pipeline(login, connector_name=connector_name, logger=logger)
+    except Exception:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
+        logger.error("error after app install", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
+        logger.error("error after app install")
+        return
+
+
     logger.info(f"Finished all process {domain}")
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "Done")
-    sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Done")
+    sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
+
+    return task_list
+
+
+if __name__ == "__main__":
+    table = sheet_utils.techfin_worksheet.get_all_records()
+
+    skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
+
+    table = [t['environmentName (tenantID)'].strip() for t in table
+             if t.get('environmentName (tenantID)', None) is not None
+             and t.get('environmentName (tenantID)', 'None') != ''
+             and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
+             ]
+
+    import multiprocessing
+
+    pool = multiprocessing.Pool(6)
+    pool.map(run, table)
+    pool.close()
+    pool.join()
