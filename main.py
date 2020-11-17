@@ -146,11 +146,11 @@ def run(domain, org='totvstechfin'):
         task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
     except Exception as e:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
-        logger.error("error after app install", exc_info=1)
+        logger.error("error after consolidate", exc_info=1)
         return
     if fail:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
-        logger.error("error after app install")
+        logger.error("error after consolidate")
         return
 
     # delete DMs
@@ -160,11 +160,11 @@ def run(domain, org='totvstechfin'):
         task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
     except Exception as e:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete DMs")
-        logger.error("error after app install", exc_info=1)
+        logger.error("error after delete DMs", exc_info=1)
         return
     if fail:
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
-        logger.error("error after app install")
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete DMs")
+        logger.error("error after delete DMs")
         return
 
 
@@ -173,11 +173,11 @@ def run(domain, org='totvstechfin'):
         fail = custom_pipeline.run_custom_pipeline(login, connector_name=connector_name, logger=logger)
     except Exception:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
-        logger.error("error after app install", exc_info=1)
+        logger.error("error after processing", exc_info=1)
         return
     if fail:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - processing")
-        logger.error("error after app install")
+        logger.error("error after processing")
         return
 
     sync_type = sheet_utils.get_sync_type(sheet_utils.techfin_worksheet, current_cell.row)
@@ -186,8 +186,8 @@ def run(domain, org='totvstechfin'):
         try:
             techfin_task.add_pubsub(login.domain)
         except Exception:
-            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "add pub/sub")
-            logger.error("error after app install", exc_info=1)
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - add pub/sub")
+            logger.error("error after add pub/sub", exc_info=1)
             return
 
 
