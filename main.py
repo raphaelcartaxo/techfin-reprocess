@@ -19,11 +19,11 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.64'
+    app_version = '0.0.65'
     connector_name = 'protheus_carol'
     connector_group = 'protheus'
 
-    consolidate_list = ['se1', 'fk1', 'se2', 'fk2']
+    consolidate_list = ['se1', 'se2',]
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
