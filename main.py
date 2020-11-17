@@ -5,11 +5,12 @@ import time
 import os
 from dotenv import load_dotenv
 from joblib import Parallel, delayed
-from functions import sheet_utils, carol_login, carol_apps, carol_task, custom_pipeline
+from functions import sheet_utils, carol_login, carol_apps, carol_task, custom_pipeline, techfin_task
 import argparse
 from slacker_log_handler import SlackerLogHandler
 import logging
 from functools import reduce
+
 
 load_dotenv('.env', override=True)
 
@@ -179,10 +180,21 @@ def run(domain, org='totvstechfin'):
         logger.error("error after app install")
         return
 
+    sync_type = sheet_utils.get_sync_type(sheet_utils.techfin_worksheet, current_cell.row)
+    if sync_type.lower().strip()=='Painel':
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - add pub/sub")
+        try:
+            techfin_task.add_pubsub(login.domain)
+        except Exception:
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "add pub/sub")
+            logger.error("error after app install", exc_info=1)
+            return
+
 
     logger.info(f"Finished all process {domain}")
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Done")
     sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
+
 
     return task_list
 
