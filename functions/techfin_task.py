@@ -3,7 +3,7 @@ import requests
 import os
 from requests.adapters import HTTPAdapter
 
-def retry_session(retries=5, session=None, backoff_factor=0.5, status_forcelist=(500, 502, 503, 504, 524),
+def retry_session(retries=7, session=None, backoff_factor=1, status_forcelist=(500, 502, 503, 504, 524),
                    method_whitelist=frozenset(['HEAD', 'TRACE', 'GET', 'PUT', 'OPTIONS', 'DELETE'])):
 
     """
