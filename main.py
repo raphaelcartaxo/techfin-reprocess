@@ -11,8 +11,8 @@ from slacker_log_handler import SlackerLogHandler
 import logging
 from functools import reduce
 
-
 load_dotenv('.env', override=True)
+
 
 def run(domain, org='totvstechfin'):
     # avoid all tasks starting at the same time.
@@ -23,7 +23,7 @@ def run(domain, org='totvstechfin'):
     connector_name = 'protheus_carol'
     connector_group = 'protheus'
 
-    consolidate_list = ['se1', 'se2',]
+    consolidate_list = ['se1', 'se2', ]
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -48,7 +48,6 @@ def run(domain, org='totvstechfin'):
 
     login = carol_login.get_login(domain, org)
     sheet_utils.update_start_time(sheet_utils.techfin_worksheet, current_cell.row)
-
 
     dag = custom_pipeline.get_dag()
     dag = list(reduce(set.union, custom_pipeline.get_dag()))
@@ -88,7 +87,6 @@ def run(domain, org='totvstechfin'):
             sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping ETLs")
             return
 
-
     # Stop pub/sub if any.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - stop pubsub")
     try:
@@ -103,7 +101,6 @@ def run(domain, org='totvstechfin'):
         logger.error("error playing pubsub", exc_info=1)
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
         return
-
 
     # Install app.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
@@ -135,12 +132,12 @@ def run(domain, org='totvstechfin'):
     # pause ETLs.
     carol_task.pause_etls(login, etl_list=staging_list, connector_name=connector_name, logger=logger)
     # pause mappings.
-    carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name,)
+    carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name, )
 
     # consolidate
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - consolidate")
     task_list = carol_task.consolidate_stagings(login, connector_name=connector_name, staging_list=consolidate_list,
-                                    n_jobs=1, logger=logger)
+                                                n_jobs=1, logger=logger)
 
     try:
         task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
@@ -167,7 +164,6 @@ def run(domain, org='totvstechfin'):
         logger.error("error after delete DMs")
         return
 
-
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - processing")
     try:
         fail = custom_pipeline.run_custom_pipeline(login, connector_name=connector_name, logger=logger)
@@ -181,7 +177,7 @@ def run(domain, org='totvstechfin'):
         return
 
     sync_type = sheet_utils.get_sync_type(sheet_utils.techfin_worksheet, current_cell.row)
-    if sync_type.lower().strip()=='Painel':
+    if sync_type.lower().strip() == 'painel':
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - add pub/sub")
         try:
             techfin_task.add_pubsub(login.domain)
@@ -190,11 +186,9 @@ def run(domain, org='totvstechfin'):
             logger.error("error after add pub/sub", exc_info=1)
             return
 
-
     logger.info(f"Finished all process {domain}")
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "Done")
     sheet_utils.update_end_time(sheet_utils.techfin_worksheet, current_cell.row)
-
 
     return task_list
 
