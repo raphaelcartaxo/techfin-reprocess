@@ -28,12 +28,12 @@ def update_task_id(techfin_worksheet, row, status):
 
 def update_start_time(techfin_worksheet, row):
     col = 6
-    techfin_worksheet.update_cell(row, col, str(datetime.datetime.now())[:-7])
+    techfin_worksheet.update_cell(row, col, str(datetime.datetime.utcnow())[:-7])
 
 
 def update_end_time(techfin_worksheet, row):
     col = 7
-    techfin_worksheet.update_cell(row, col, str(datetime.datetime.now())[:-7])
+    techfin_worksheet.update_cell(row, col, str(datetime.datetime.utcnow())[:-7])
 
 
 def update_version(techfin_worksheet, row, version):

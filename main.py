@@ -18,7 +18,7 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.63'
+    app_version = '0.0.64'
     connector_name = 'protheus_carol'
     connector_group = 'protheus'
 
