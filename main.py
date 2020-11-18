@@ -177,7 +177,7 @@ def run(domain, org='totvstechfin'):
         return
 
     sync_type = sheet_utils.get_sync_type(sheet_utils.techfin_worksheet, current_cell.row)
-    if sync_type.lower().strip() == 'painel':
+    if 'painel' in sync_type.lower().strip():
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - add pub/sub")
         try:
             techfin_task.add_pubsub(login.domain)
