@@ -1,6 +1,6 @@
 from pycarol import (
     Carol, ApiKeyAuth, PwdAuth, Tasks, Staging, Connectors, CDSStaging, Subscription, DataModel
-                     )
+)
 
 from pycarol import CDSGolden
 from pycarol.query import delete_golden
@@ -10,6 +10,7 @@ import time
 import logging
 from joblib import Parallel, delayed
 from itertools import chain
+
 
 def cancel_tasks(login, task_list, logger=None):
     if logger is None:
@@ -96,6 +97,7 @@ def drop_staging(login, staging_list, logger=None):
 
     return tasks, False
 
+
 def get_all_stagings(login, connector_name):
     """
     Get all staging tables from a connector.
@@ -114,6 +116,7 @@ def get_all_stagings(login, connector_name):
     conn_stats = Connectors(login).stats(connector_name=connector_name)
     st = [i for i in list(conn_stats.values())[0]]
     return sorted(st)
+
 
 def get_all_etls(login, connector_name):
     """
@@ -134,6 +137,7 @@ def get_all_etls(login, connector_name):
     etls = login.call_api(f'v1/etl/connector/{connector_id}', method='GET')
     return etls
 
+
 def drop_etls(login, etl_list):
     """
 
@@ -149,7 +153,7 @@ def drop_etls(login, etl_list):
     for i in etl_list:
         mdm_id = i['mdmId']
         try:
-            #Delete drafts.
+            # Delete drafts.
             login.call_api(f'v2/etl/{mdm_id}', method='DELETE', params={'entitySpace': 'WORKING'})
         except Exception as e:
             pass
@@ -176,7 +180,6 @@ def par_processing(login, staging_name, connector_name, delete_realtime_records=
 
 
 def pause_and_clear_subscriptions(login, dm_list, logger):
-
     if logger is None:
         logger = logging.getLogger(login.domain)
 
@@ -192,8 +195,8 @@ def pause_and_clear_subscriptions(login, dm_list, logger):
 
     return
 
-def play_subscriptions(login, dm_list, logger):
 
+def play_subscriptions(login, dm_list, logger):
     if logger is None:
         logger = logging.getLogger(login.domain)
 
@@ -210,11 +213,10 @@ def play_subscriptions(login, dm_list, logger):
 
 
 def find_task_types(login):
-
-    #TODO can user Query from pycarol
+    # TODO can user Query from pycarol
     uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=1000&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
 
-    task_type =  ["PROCESS_CDS_STAGING_DATA", "REPROCESS_SEARCH_RESULT"]
+    task_type = ["PROCESS_CDS_STAGING_DATA", "REPROCESS_SEARCH_RESULT"]
     task_status = ["READY", "RUNNING"]
 
     query = {"mustList": [{"mdmFilterType": "TYPE_FILTER", "mdmValue": "mdmTask"},
@@ -244,7 +246,6 @@ def pause_etls(login, etl_list, connector_name, logger):
 
 
 def pause_dms(login, dm_list, connector_name):
-
     conn = Connectors(login)
     mappings = conn.get_dm_mappings(connector_name=connector_name, )
     mappings = [i['mdmId'] for i in mappings if
@@ -253,7 +254,7 @@ def pause_dms(login, dm_list, connector_name):
     r = conn.pause_mapping(connector_name=connector_name, entity_mapping_id=mappings)
 
 
-def par_consolidate(login, staging_name, connector_name):
+def par_consolidate(login, staging_name, connector_name, compute_transformations=False):
     cds_stag = CDSStaging(login)
     n_r = cds_stag.count(staging_name=staging_name, connector_name=connector_name)
     if n_r > 5000000:
@@ -265,29 +266,31 @@ def par_consolidate(login, staging_name, connector_name):
     number_shards = round(n_r / 100000) + 1
     number_shards = max(16, number_shards)
     task_id = cds_stag.consolidate(staging_name=staging_name, connector_name=connector_name, worker_type=worker_type,
+                                   compute_transformations=compute_transformations,
                                    number_shards=number_shards, rehash_ids=True, max_number_workers=max_number_workers)
     return task_id
 
 
-def consolidate_stagings(login, connector_name, staging_list, n_jobs=5, logger=None):
-
+def consolidate_stagings(login, connector_name, staging_list, n_jobs=5, compute_transformations=False, logger=None):
     if logger is None:
         logger = logging.getLogger(login.domain)
 
-
-    task_id = Parallel(n_jobs=n_jobs, backend='threading')(delayed(par_consolidate)(login, staging_name=i,
-                                                                               connector_name=connector_name)
-                                                      for i in staging_list)
+    task_id = Parallel(n_jobs=n_jobs, backend='threading')(delayed(par_consolidate)(
+        login, staging_name=i,
+        connector_name=connector_name,
+        compute_transformations=compute_transformations
+    )
+                                                           for i in staging_list)
 
     task_list = [i['data']['mdmId'] for i in task_id]
 
     return task_list
 
+
 def par_delete_golden(login, dm_list, n_jobs=5):
-
     tasks = []
-    def del_golden(dm_name, login):
 
+    def del_golden(dm_name, login):
         t = []
         dm_id = DataModel(login).get_by_name(dm_name)['mdmId']
         task = login.call_api("v2/cds/rejected/clearData", method='POST', params={'entityTemplateId': dm_id})['taskId']
@@ -302,8 +305,21 @@ def par_delete_golden(login, dm_list, n_jobs=5):
     return list(chain(*tasks))
 
 
-def resume_process(login, connector_name, staging_name, logger=None):
+def par_delete_staging(login, staging_list, connector_name, n_jobs=5):
+    tasks = []
 
+    def del_staging(staging_name, connector_name, login):
+        t = []
+        cds_ = CDSStaging(login)
+        task = cds_.delete(staging_name=staging_name, connector_name=connector_name)
+        t += [task['taskId'], ]
+        return t
+
+    tasks = Parallel(n_jobs=n_jobs)(delayed(del_staging)(i, connector_name, login) for i in staging_list)
+    return list(chain(*tasks))
+
+
+def resume_process(login, connector_name, staging_name, logger=None, delay=1):
     if logger is None:
         logger = logging.getLogger(login.domain)
 
@@ -326,7 +342,7 @@ def resume_process(login, connector_name, staging_name, logger=None):
                           process_cds=False, )
 
     # wait for mapping effect.
-    time.sleep(1)
+    time.sleep(delay)
     return mappings_
 
 

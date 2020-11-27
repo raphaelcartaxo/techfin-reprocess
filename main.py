@@ -24,6 +24,7 @@ def run(domain, org='totvstechfin'):
     connector_group = 'protheus'
 
     consolidate_list = ['se1', 'se2', ]
+    compute_transformations = True # need to force the old data to the stagings transformation.
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -137,7 +138,7 @@ def run(domain, org='totvstechfin'):
     # consolidate
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - consolidate")
     task_list = carol_task.consolidate_stagings(login, connector_name=connector_name, staging_list=consolidate_list,
-                                                n_jobs=1, logger=logger)
+                                                n_jobs=1, logger=logger, compute_transformations=compute_transformations)
 
     try:
         task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
@@ -148,6 +149,22 @@ def run(domain, org='totvstechfin'):
     if fail:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
         logger.error("error after consolidate")
+        return
+
+    # delete stagings.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete stagings")
+    st = carol_task.get_all_stagings(login, connector_name=connector_name)
+    st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
+    task_list = carol_task.par_delete_staging(login, staging_list=st, connector_name=connector_name, n_jobs=1)
+    try:
+        task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
+    except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete stagings")
+        logger.error("error after delete DMs", exc_info=1)
+        return
+    if fail:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete stagings")
+        logger.error("error after delete DMs")
         return
 
     # delete DMs
@@ -198,15 +215,5 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    table = [t['environmentName (tenantID)'].strip() for t in table
-             if t.get('environmentName (tenantID)', None) is not None
-             and t.get('environmentName (tenantID)', 'None') != ''
-             and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
-             ]
+    run("tenant02ed2711df5211ea94e70a586460b694")
 
-    import multiprocessing
-
-    pool = multiprocessing.Pool(6)
-    pool.map(run, table)
-    pool.close()
-    pool.join()
