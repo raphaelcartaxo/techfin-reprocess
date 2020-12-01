@@ -192,13 +192,16 @@ def run(domain, org='totvstechfin'):
         logger.error("error after delete DMs")
         return
 
-    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete payments techfin")
-    try:
-        res = techfin_task.delete_payments(login.domain)
-    except Exception as e:
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete payments techfin")
-        logger.error("error after delete payments techfin", exc_info=1)
-        return
+
+    sync_type = sheet_utils.get_sync_type(sheet_utils.techfin_worksheet, current_cell.row)
+    if 'painel' in sync_type.lower().strip():
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete payments techfin")
+        try:
+            res = techfin_task.delete_payments(login.domain)
+        except Exception as e:
+            sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete payments techfin")
+            logger.error("error after delete payments techfin", exc_info=1)
+            return
 
 
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - processing")
