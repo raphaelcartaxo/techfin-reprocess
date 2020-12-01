@@ -59,6 +59,10 @@ def get_dag():
     rel['se2_payments'] = ['DM_apinvoiceinstallment', 'se2']
     rel['se2_payments_abatimentos'] = ['DM_apinvoiceinstallment', 'se2']
 
+    rel['sea_1_frv_descontado_deletado_payments_bank'] = ['DM_apinvoicepayments']
+    rel['sea_1_frv_descontado_naodeletado_payments_bank'] = ['DM_apinvoicepayments']
+    rel['DM_arpaymentsbank'] = ['DM_apinvoicepayments', 'sea_1_frv_descontado_deletado_payments_bank', 'sea_1_frv_descontado_naodeletado_payments_bank']
+
     rel = {i: set(j) for i, j in rel.items()}
     dag_order = toposort(rel)
 
