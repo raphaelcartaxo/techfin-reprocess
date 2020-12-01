@@ -19,12 +19,12 @@ def run(domain, org='totvstechfin'):
     time.sleep(round(1 + random.random() * 6, 2))
     org = 'totvstechfin'
     app_name = "techfinplatform"
-    app_version = '0.0.65'
+    app_version = '0.0.68'
     connector_name = 'protheus_carol'
     connector_group = 'protheus'
 
     consolidate_list = ['se1', 'se2', ]
-    compute_transformations = True # need to force the old data to the stagings transformation.
+    compute_transformations = True  # need to force the old data to the stagings transformation.
 
     # Create slack handler
     slack_handler = SlackerLogHandler(os.environ["SLACK"], '#techfin-reprocess',  # "@rafael.rui",
@@ -96,12 +96,6 @@ def run(domain, org='totvstechfin'):
         logger.error("error stop pubsub", exc_info=1)
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - stop pubsub")
         return
-    try:
-        carol_task.play_subscriptions(login, dms, logger)
-    except Exception as e:
-        logger.error("error playing pubsub", exc_info=1)
-        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
-        return
 
     # Install app.
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
@@ -134,6 +128,8 @@ def run(domain, org='totvstechfin'):
     carol_task.pause_etls(login, etl_list=staging_list, connector_name=connector_name, logger=logger)
     # pause mappings.
     carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name, )
+    time.sleep(round(10 + random.random() * 6, 2))  # pause have affect
+
 
     # consolidate
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - consolidate")
@@ -149,6 +145,21 @@ def run(domain, org='totvstechfin'):
     if fail:
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - consolidate")
         logger.error("error after consolidate")
+        return
+
+    # Stop pub/sub if any.
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - stop pubsub")
+    try:
+        carol_task.pause_and_clear_subscriptions(login, dms, logger)
+    except Exception as e:
+        logger.error("error stop pubsub", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - stop pubsub")
+        return
+    try:
+        carol_task.play_subscriptions(login, dms, logger)
+    except Exception as e:
+        logger.error("error playing pubsub", exc_info=1)
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - playing pubsub")
         return
 
     # delete stagings.
@@ -180,6 +191,15 @@ def run(domain, org='totvstechfin'):
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete DMs")
         logger.error("error after delete DMs")
         return
+
+    sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - delete payments techfin")
+    try:
+        res = techfin_task.delete_payments(login.domain)
+    except Exception as e:
+        sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - delete payments techfin")
+        logger.error("error after delete payments techfin", exc_info=1)
+        return
+
 
     sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - processing")
     try:
@@ -215,5 +235,18 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    run("tenant02ed2711df5211ea94e70a586460b694")
+    # run("tenant70827589d8a611eabbf10a586460272f")
+
+    table = [t['environmentName (tenantID)'].strip() for t in table
+             if t.get('environmentName (tenantID)', None) is not None
+             and t.get('environmentName (tenantID)', 'None') != ''
+             and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
+             ]
+
+    import multiprocessing
+
+    pool = multiprocessing.Pool(6)
+    pool.map(run, table)
+    pool.close()
+    pool.join()
 

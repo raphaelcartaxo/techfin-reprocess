@@ -44,10 +44,15 @@ def retry_session(retries=7, session=None, backoff_factor=1, status_forcelist=(5
     return session
 
 
-def add_pubsub(tenant):
-
+def get_guid(tenant):
     tenant = tenant[6:]
     uuid_tenant = tenant[:8] + '-' + tenant[8:12] + '-' + tenant[12:16] + '-' + tenant[16:20] + '-' + tenant[20:]
+    return uuid_tenant
+
+def add_pubsub(tenant):
+
+
+    uuid_tenant = get_guid(tenant)
     bearer_token = os.environ['TOKEN_TECHFIN']
     api = 'https://cashflow.totvs.app/carol-sync/api/v1/subscription/subscribe'
     header = {"Authorization": f"Bearer {bearer_token}", 'accept': '/' ,"content-type": 'application/json'}
@@ -58,3 +63,18 @@ def add_pubsub(tenant):
     r = session.post(url=api, json=payload, headers=header, )
 
     return r
+
+def delete_payments(tenant):
+
+    uuid_tenant = get_guid(tenant)
+    bearer_token = os.environ['TOKEN_TECHFIN']
+    api = f'https://cashflow.totvs.app/provisioner/api/v1/carol-sync-monitoring/{uuid_tenant}/delete-payments'
+    header = {"Authorization": f"Bearer {bearer_token}", 'accept': '/' ,"content-type": 'application/json'}
+
+    session = retry_session(method_whitelist=frozenset(['POST']),)
+    r = session.post(url=api, headers=header, )
+
+    return r
+
+
+
