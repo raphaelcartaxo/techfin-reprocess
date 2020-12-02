@@ -108,7 +108,7 @@ def run(domain, org='totvstechfin'):
 
         #Subprocess to cancel tasks from carol
         #TODO: Remove this after next carol deploy.
-        proc = multiprocessing.Process(target=carol_task.cancel_task_subprocess(), args=(login,))
+        proc = multiprocessing.Process(target=carol_task.cancel_task_subprocess, args=(login,))
         proc.start()
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
