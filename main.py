@@ -65,7 +65,7 @@ def run(domain, org='totvstechfin'):
         logger.info(f"Starting process {domain}")
         st = carol_task.get_all_stagings(login, connector_name=connector_name)
         st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
-        tasks, fail = carol_task.drop_staging(login, staging_list=st, logger=logger)
+        tasks, fail = carol_task.drop_staging(login, staging_list=st, connector_name=connector_name,  logger=logger)
         if fail:
             logger.error(f"error dropping staging {domain}")
             sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "failed - dropping stagings")
@@ -246,7 +246,7 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    run("tenant2daecc4d139f11eb9ca40a5864606c4f")
+    run("tenante905725413a211eba0850a5864606b89")
 
     table = [t['environmentName (tenantID)'].strip() for t in table
              if t.get('environmentName (tenantID)', None) is not None

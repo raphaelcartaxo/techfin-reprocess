@@ -10,6 +10,7 @@ import time
 import logging
 from joblib import Parallel, delayed
 from itertools import chain
+from pycarol.exceptions import CarolApiResponseException
 
 
 def cancel_tasks(login, task_list, logger=None):
@@ -63,7 +64,7 @@ def track_tasks(login, task_list, do_not_retry=False, logger=None):
             logger.debug('Waiting for tasks')
 
 
-def drop_staging(login, staging_list, logger=None):
+def drop_staging(login, staging_list,connector_name, logger=None):
     """
     Drop a list of stagings
 
@@ -87,10 +88,20 @@ def drop_staging(login, staging_list, logger=None):
     tasks = []
     for i in staging_list:
         stag = Staging(login)
+
         try:
-            r = stag.drop_staging(staging_name=i, connector_name='protheus_carol', )
+            r = stag.drop_staging(staging_name=i, connector_name=connector_name, )
             tasks += [r['taskId']]
             logger.debug(f"dropping {i} - {r['taskId']}")
+
+        except CarolApiResponseException as e:
+            if 'SCHEMA_NOT_FOUND' in str(e):
+                logger.debug(f"{i} a;ready dropped.")
+                continue
+            else:
+                logger.error("error dropping staging", exc_info=1)
+                return tasks, True
+
         except Exception as e:
             logger.error("error dropping staging", exc_info=1)
             return tasks, True
