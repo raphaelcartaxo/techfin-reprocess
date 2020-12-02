@@ -10,6 +10,7 @@ import argparse
 from slacker_log_handler import SlackerLogHandler
 import logging
 from functools import reduce
+import multiprocessing
 
 load_dotenv('.env', override=True)
 
@@ -103,11 +104,17 @@ def run(domain, org='totvstechfin'):
     fail = False
     task_list = '__unk__'
     if current_version != app_version:
+
+        #Subprocess to cancel tasks from carol
+        #TODO: Remove this after next carol deploy.
+        proc = multiprocessing.Process(target=carol_task.cancel_task_subprocess(), args=(login,))
+        proc.start()
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - app install")
         task_list, fail = carol_apps.update_app(login, app_name, app_version, logger, connector_group=connector_group)
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)
+        proc.terminate()
     else:
         logger.info(f"Running version {app_version}")
         sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, app_version)

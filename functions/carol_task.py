@@ -346,7 +346,10 @@ def resume_process(login, connector_name, staging_name, logger=None, delay=1):
     return mappings_
 
 
-def check_mapping(login, connector_name, staging_name):
+def check_mapping(login, connector_name, staging_name, logger=None):
+    if logger is None:
+        logger = logging.getLogger(login.domain)
+
     conn = Connectors(login)
     resp = conn.get_entity_mappings(connector_name=connector_name, staging_name=staging_name,
                                     errors='ignore'
@@ -360,3 +363,12 @@ def check_mapping(login, connector_name, staging_name):
             raise ValueError(f'Error checking mapping {resp}')
 
     return resp
+
+
+def cancel_task_subprocess(login):
+    while True:
+        pross_tasks = find_task_types(login)
+        pross_task = [i['mdmId'] for i in pross_tasks]
+        if pross_task:
+            cancel_tasks(login, pross_task)
+        time.sleep(4)
