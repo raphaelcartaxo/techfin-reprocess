@@ -59,6 +59,7 @@ def run(domain, org='totvstechfin'):
     current_version = carol_apps.get_app_version(login, app_name, app_version)
 
     if current_version != app_version and current_version < "0.0.63":
+        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
         # Dropping stagings.
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
         logger.info(f"Starting process {domain}")
@@ -245,7 +246,7 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing']
 
-    # run("tenant70827589d8a611eabbf10a586460272f")
+    run("tenant2daecc4d139f11eb9ca40a5864606c4f")
 
     table = [t['environmentName (tenantID)'].strip() for t in table
              if t.get('environmentName (tenantID)', None) is not None
