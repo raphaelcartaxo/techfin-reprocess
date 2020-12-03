@@ -1,5 +1,5 @@
 from pycarol import Carol, ApiKeyAuth, PwdAuth, Tasks, Apps
-
+from functools import partial
 from . import sheet_utils, carol_task
 
 def get_app_version(login, app_name, version):
@@ -35,7 +35,8 @@ def update_app(login, app_name, app_version, logger, connector_group=None):
         task_id = r['hits'][0]['mdmId']
         installing_version = r['hits'][0]['mdmData']['carolAppVersion']
         try:
-            task_list, fail = carol_task.track_tasks(login, [task_id], logger=logger)
+            callback = partial(carol_task.cancel_task_subprocess, login=login)
+            task_list, fail = carol_task.track_tasks(login, [task_id], logger=logger, callback=callback)
             if installing_version == app_version:
                 return task_id, False
         except Exception as e:
@@ -61,7 +62,8 @@ def update_app(login, app_name, app_version, logger, connector_group=None):
             return '__unk__', True
 
     try:
-        task_list, fail = carol_task.track_tasks(login, [install_task], logger=logger)
+        callback = partial(carol_task.cancel_task_subprocess, login=login)
+        task_list, fail = carol_task.track_tasks(login, [install_task], logger=logger, callback=callback)
     except Exception as e:
         logger.error("error after app install", exc_info=1)
         fail = True

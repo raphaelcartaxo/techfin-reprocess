@@ -25,7 +25,7 @@ def cancel_tasks(login, task_list, logger=None):
     return
 
 
-def track_tasks(login, task_list, do_not_retry=False, logger=None):
+def track_tasks(login, task_list, do_not_retry=False, logger=None, callback=None):
     if logger is None:
         logger = logging.getLogger(login.domain)
 
@@ -62,6 +62,8 @@ def track_tasks(login, task_list, do_not_retry=False, logger=None):
         else:
             time.sleep(round(10 + random.random() * 5, 2))
             logger.debug('Waiting for tasks')
+        if callable(callback):
+            callback()
 
 
 def drop_staging(login, staging_list,connector_name, logger=None):
@@ -377,9 +379,7 @@ def check_mapping(login, connector_name, staging_name, logger=None):
 
 
 def cancel_task_subprocess(login):
-    while True:
-        pross_tasks = find_task_types(login)
-        pross_task = [i['mdmId'] for i in pross_tasks]
-        if pross_task:
-            cancel_tasks(login, pross_task)
-        time.sleep(4)
+    pross_tasks = find_task_types(login)
+    pross_task = [i['mdmId'] for i in pross_tasks]
+    if pross_task:
+        cancel_tasks(login, pross_task)
