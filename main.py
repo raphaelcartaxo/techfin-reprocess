@@ -59,7 +59,6 @@ def run(domain, org='totvstechfin'):
     current_version = carol_apps.get_app_version(login, app_name, app_version)
 
     if current_version != app_version and current_version < "0.0.63":
-        sheet_utils.update_version(sheet_utils.techfin_worksheet, current_cell.row, current_version)
         # Dropping stagings.
         sheet_utils.update_status(sheet_utils.techfin_worksheet, current_cell.row, "running - drop stagings")
         logger.info(f"Starting process {domain}")
