@@ -2,12 +2,14 @@ import gspread
 import datetime
 import time
 import random
-gc = gspread.oauth()
-sh = gc.open("status_techfin_reprocess")
-techfin_worksheet = sh.worksheet("status")
 
 
-# folder with creds /Users/rafarui/.config/gspread
+def get_client():
+    # folder with creds /Users/rafarui/.config/gspread
+    gc = gspread.oauth()
+    sh = gc.open("status_techfin_reprocess")
+    techfin_worksheet = sh.worksheet("status")
+    return techfin_worksheet
 
 
 def find_tenant(techfin_worksheet, domain):
