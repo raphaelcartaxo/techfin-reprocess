@@ -1,6 +1,6 @@
 from pycarol import Carol, ApiKeyAuth, PwdAuth, Tasks, Apps
 from functools import partial
-from . import sheet_utils, carol_task
+from . import carol_task
 
 def get_app_version(login, app_name, version):
     app = Apps(login)
@@ -18,7 +18,6 @@ def check_failed_instalL(login, app_name, app_version):
 
 def update_app(login, app_name, app_version, logger, connector_group=None):
 
-    current_cell = sheet_utils.find_tenant(sheet_utils.techfin_worksheet, login.domain)
     #check if there is a install task is running.
     uri = 'v1/queries/filter?indexType=MASTER&scrollable=false&pageSize=25&offset=0&sortBy=mdmLastUpdated&sortOrder=DESC'
     # TODO can user Query from pycarol
