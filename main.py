@@ -58,7 +58,12 @@ def run(domain, org='totvstechfin'):
     dms = [i.replace('DM_', '') for i in dag if i.startswith('DM_')]
     staging_list = [i for i in dag if not i.startswith('DM_')]
 
-    current_version = carol_apps.get_app_version(login, app_name, app_version)
+    try:
+        current_version = carol_apps.get_app_version(login, app_name, app_version)
+    except:
+        logger.error(f"error fetching app version {login.domain}", exc_info=1)
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - fetching app version")
+        return
 
     if current_version != app_version and current_version < "0.0.63":
         # Dropping stagings.
