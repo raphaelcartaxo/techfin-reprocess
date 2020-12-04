@@ -71,7 +71,7 @@ def run(domain, org='totvstechfin'):
         logger.info(f"Starting process {domain}")
         st = carol_task.get_all_stagings(login, connector_name=connector_name)
         st = [i for i in st if i.startswith('se1_') or i.startswith('se2_')]
-        tasks, fail = carol_task.drop_staging(login, staging_list=st, connector_name=connector_name,  logger=logger)
+        tasks, fail = carol_task.drop_staging(login, staging_list=st, connector_name=connector_name, logger=logger)
         if fail:
             logger.error(f"error dropping staging {domain}")
             sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - dropping stagings")
@@ -96,21 +96,20 @@ def run(domain, org='totvstechfin'):
             sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - dropping ETLs")
             return
 
-    # Stop pub/sub if any.
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - stop pubsub")
-    try:
-        carol_task.pause_and_clear_subscriptions(login, dms, logger)
-    except Exception as e:
-        logger.error("error stop pubsub", exc_info=1)
-        sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - stop pubsub")
-        return
-
-    # Install app.
-    sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - app install")
     current_version = carol_apps.get_app_version(login, app_name, app_version)
     fail = False
     task_list = '__unk__'
     if current_version != app_version:
+
+        # Stop pub/sub if any.
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - stop pubsub")
+        try:
+            carol_task.pause_and_clear_subscriptions(login, dms, logger)
+        except Exception as e:
+            logger.error("error stop pubsub", exc_info=1)
+            sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - stop pubsub")
+            return
+
         logger.info(f"Updating app from {current_version} to {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, current_version)
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - app install")
@@ -119,6 +118,9 @@ def run(domain, org='totvstechfin'):
     else:
         logger.info(f"Running version {app_version}")
         sheet_utils.update_version(techfin_worksheet, current_cell.row, app_version)
+        sheet_utils.update_status(techfin_worksheet, current_cell.row, "Done")
+        sheet_utils.update_end_time(techfin_worksheet, current_cell.row)
+        return
 
     if fail:
         sheet_utils.update_status(techfin_worksheet, current_cell.row,
@@ -138,11 +140,11 @@ def run(domain, org='totvstechfin'):
     carol_task.pause_dms(login, dm_list=dms, connector_name=connector_name, )
     time.sleep(round(10 + random.random() * 6, 2))  # pause have affect
 
-
     # consolidate
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - consolidate")
     task_list = carol_task.consolidate_stagings(login, connector_name=connector_name, staging_list=consolidate_list,
-                                                n_jobs=1, logger=logger, compute_transformations=compute_transformations)
+                                                n_jobs=1, logger=logger,
+                                                compute_transformations=compute_transformations)
 
     try:
         task_list, fail = carol_task.track_tasks(login, task_list, logger=logger)
@@ -200,7 +202,6 @@ def run(domain, org='totvstechfin'):
         logger.error("error after delete DMs")
         return
 
-
     sync_type = sheet_utils.get_sync_type(techfin_worksheet, current_cell.row)
     if 'painel' in sync_type.lower().strip():
         sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - delete payments techfin")
@@ -210,7 +211,6 @@ def run(domain, org='totvstechfin'):
             sheet_utils.update_status(techfin_worksheet, current_cell.row, "failed - delete payments techfin")
             logger.error("error after delete payments techfin", exc_info=1)
             return
-
 
     sheet_utils.update_status(techfin_worksheet, current_cell.row, "running - processing")
     try:
@@ -247,7 +247,7 @@ if __name__ == "__main__":
 
     skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing', 'wait']
 
-    #run("tenante905725413a211eba0850a5864606b89")
+    #     run("tenant626b1cec914111eabf8a0a5864600195")
 
     table = [t['environmentName (tenantID)'].strip() for t in table
              if t.get('environmentName (tenantID)', None) is not None
