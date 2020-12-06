@@ -243,22 +243,26 @@ def run(domain, org='totvstechfin'):
 
 if __name__ == "__main__":
     techfin_worksheet = sheet_utils.get_client()
-    table = techfin_worksheet.get_all_records()
-
-    skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing', 'wait']
 
     #     run("tenant626b1cec914111eabf8a0a5864600195")
 
-    table = [t['environmentName (tenantID)'].strip() for t in table
-             if t.get('environmentName (tenantID)', None) is not None
-             and t.get('environmentName (tenantID)', 'None') != ''
-             and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
-             ]
+    has_tenant = [1, 2, 3]
+    while len(has_tenant) > 1:
+        table = techfin_worksheet.get_all_records()
+        skip_status = ['done', 'failed', 'running', 'installing', 'reprocessing', 'wait']
+        to_process = [t['environmentName (tenantID)'].strip() for t in table
+                      if t.get('environmentName (tenantID)', None) is not None
+                      and t.get('environmentName (tenantID)', 'None') != ''
+                      and not any(i in t.get('Status', '').lower().strip() for i in skip_status)
+                      ]
 
-    import multiprocessing
+        has_tenant = [i for i in table if i['Status'] == '' or i['Status'] == 'wait']
+        print(f"there are {len(to_process)} to process and {len(has_tenant)} waiting")
 
-    pool = multiprocessing.Pool(5)
-    pool.map(run, table)
-    pool.close()
-    pool.join()
+        pool = multiprocessing.Pool(5)
+        pool.map(run, to_process)
+        pool.close()
+        pool.join()
+
+        time.sleep(240)
 
