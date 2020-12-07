@@ -50,7 +50,7 @@ def run(domain, org='totvstechfin'):
         logger.info(f"Nothing to do in {domain}, status {status}")
         return
 
-    login = carol_login.get_login(domain, org)
+    login = carol_login.get_login(domain, org, app_name)
     sheet_utils.update_start_time(techfin_worksheet, current_cell.row)
 
     dag = custom_pipeline.get_dag()

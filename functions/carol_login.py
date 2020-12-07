@@ -2,10 +2,9 @@ from pycarol import Carol, ApiKeyAuth, PwdAuth, Tasks
 import os
 
 
-def get_login(domain, org):
+def get_login(domain, org, carol_app):
     email = os.environ['CAROLUSER']
     password = os.environ['CAROLPWD']
-    carol_app = 'techfinplatform'
     login = Carol(domain, carol_app, auth=PwdAuth(email, password), organization=org, )
     api_key = login.issue_api_key()
 
